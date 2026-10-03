@@ -13,7 +13,8 @@ WORKDIR /app
 
 # Install deps first for better layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools \
+    && pip install --no-cache-dir -r requirements.txt
 
 # App code
 COPY model.py app.py auth.py ./
