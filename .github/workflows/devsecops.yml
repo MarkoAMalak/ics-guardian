@@ -73,7 +73,14 @@ jobs:
       - name: Install pip-audit
         run: pip install pip-audit
       - name: Audit dependencies
-        run: pip-audit -r platform/detection_service/requirements.txt --strict
+        # The CPU build of torch (e.g. 2.14.1+cpu) is not on PyPI, so pip-audit cannot
+        # resolve it. Audit everything else with full transitive resolution, then audit
+        # the pinned torch version on its own against the PyPI advisory database.
+        run: |
+          grep -vE '^(--extra-index-url|torch==)' platform/detection_service/requirements.txt > /tmp/req-no-torch.txt
+          grep -E '^torch==' platform/detection_service/requirements.txt > /tmp/req-torch.txt
+          pip-audit -r /tmp/req-no-torch.txt --strict
+          pip-audit -r /tmp/req-torch.txt --no-deps --disable-pip --strict
 
   # ----------------------------------------------------------------- #
   secret-scan:
