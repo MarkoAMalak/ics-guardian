@@ -9,3 +9,4 @@ ignore = ["E501"]  # line length handled by formatter; keep docstrings readable
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+pythonpath = ["."]
