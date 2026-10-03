@@ -13,6 +13,12 @@ WORKDIR /app
 
 # Install deps first for better layer caching
 COPY requirements.txt .
+# Patch OS packages (e.g. libpcre2) and drop the unused ensurepip wheels, whose
+# bundled old pip/setuptools (with vendored urllib3/msgpack) trip the image scan.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/python3.11/ensurepip/_bundled
 RUN pip install --no-cache-dir --upgrade pip setuptools \
     && pip install --no-cache-dir -r requirements.txt
 
