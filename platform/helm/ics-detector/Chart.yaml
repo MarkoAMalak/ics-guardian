@@ -1,0 +1,13 @@
+apiVersion: v2
+name: ics-detector
+description: Cloud-native serving tier for the ICS anomaly-detection platform (SWaT-trained detector).
+type: application
+version: 1.0.0            # chart version
+appVersion: "1.0.0"      # detector image version
+keywords:
+  - ics
+  - anomaly-detection
+  - devsecops
+  - water-treatment
+maintainers:
+  - name: Graduation Project — Cloud-Native DevSecOps Platform for ICS

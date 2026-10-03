@@ -1,0 +1,50 @@
+# Default values for the ics-detector chart. Override with -f my-values.yaml or --set.
+
+replicaCount: 2
+
+image:
+  repository: ics-detector
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# Pod & container hardening (mirrors the DevSecOps security posture)
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+# Prometheus scrape annotations
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8000
+
+# Model artefacts are baked into the image. Set existingClaim to mount a
+# PersistentVolumeClaim over them instead (e.g. to roll a recalibrated model).
+artifacts:
+  mountPath: /app/artifacts
+  existingClaim: ""
+
+# Name of a Secret holding the JWT signing key under the key "secret".
+auth:
+  secretName: ics-detector-auth
