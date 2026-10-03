@@ -1,0 +1,114 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin · ICS Guardian</title>
+<link rel="icon" href="assets/logo.svg"/>
+<link rel="stylesheet" href="assets/app.css?v=9"/>
+<script>
+/* Auth gate: runs before the page paints so protected content never flashes.
+   - not logged in            -> everything except login/register redirects to login
+   - logged in on login/reg   -> bounce to home
+   - admin-only pages         -> operators are sent to their account page          */
+document.documentElement.style.visibility='hidden';
+(function(){
+  try{
+    var page=(location.pathname.split('/').pop()||'index.html');
+    var PUBLIC={'login.html':1,'register.html':1};
+    // admin-only pages: the admin panel + the tabs operators are not allowed to see
+    var ADMIN={'admin.html':1,'architecture.html':1,'devsecops.html':1,'media.html':1};
+    var tok=sessionStorage.getItem('icsg_token'), user=null;
+    try{ user=JSON.parse(sessionStorage.getItem('icsg_user')||'null'); }catch(e){}
+    function show(){ document.documentElement.style.visibility=''; }
+    if(PUBLIC[page]){ if(tok){ location.replace('index.html'); return; } return show(); }
+    if(!tok){ location.replace('login.html'); return; }
+    if(ADMIN[page] && (!user || user.role!=='admin')){ location.replace(page==='admin.html'?'account.html':'index.html'); return; }
+    show();
+  }catch(e){ document.documentElement.style.visibility=''; }
+})();
+</script></head><body>
+<main>
+  <div class="pagehead"><h1>Admin panel</h1><p>User management and system status. Admins only.</p></div>
+  <div id="gate" class="note">Checking your permissions...</div>
+  <div id="body" class="hidden">
+    <div class="note" style="margin-bottom:14px">Admin-only powers: manage users, enable/disable accounts, change roles, and adjust the live detection threshold. Operators can do none of these.</div>
+    <h2 class="sec">System activity</h2>
+    <div class="kpis" id="sys">
+      <div class="kpi"><div class="v" id="s_users">-</div><div class="l">registered users</div></div>
+      <div class="kpi"><div class="v" id="s_req">-</div><div class="l">scoring requests</div></div>
+      <div class="kpi"><div class="v am" id="s_anom">-</div><div class="l">anomalies flagged</div></div>
+      <div class="kpi"><div class="v ok" id="s_model">-</div><div class="l">model status</div></div>
+    </div>
+
+    <h2 class="sec">Detection settings</h2>
+    <div class="card" style="max-width:520px">
+      <p style="margin:0 0 10px;color:var(--mut);font-size:14px">The live anomaly threshold (reconstruction error). Only admins can change it.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>Threshold</label><input id="thr" type="number" step="0.0001" style="width:160px"></div>
+        <button class="btn" style="padding:9px 16px" onclick="saveThr()">Save threshold</button>
+        <span id="thrcur" class="mut" style="font-size:13px"></span>
+      </div>
+      <div id="setmsg" class="msg"></div>
+    </div>
+
+    <h2 class="sec">Users</h2>
+    <div class="card"><table class="tbl" id="utab"><tr><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Change role</th><th>Account</th></tr></table></div>
+    <div id="msg" class="msg"></div>
+  </div>
+</main>
+<script src="assets/app.js?v=9"></script>
+<script>
+function fmt(ts){ try{return new Date(ts*1000).toISOString().slice(0,10);}catch{return '-';} }
+async function loadUsers(){
+  const d=await ICSG.api('/auth/users');
+  document.getElementById('s_users').textContent=d.count;
+  const t=document.getElementById('utab');
+  t.innerHTML='<tr><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Change role</th><th>Account</th></tr>'+
+    d.users.map(u=>`<tr><td>${u.email}</td><td><span class="badge-role ${u.role}">${u.role}</span></td>
+      <td>${u.active?'<span style="color:#7fe0ac">active</span>':'<span style="color:#f0787f">disabled</span>'}</td>
+      <td class="mut">${fmt(u.created_at)}</td>
+      <td><select data-e="${u.email}"><option ${u.role==='operator'?'selected':''}>operator</option><option ${u.role==='admin'?'selected':''}>admin</option></select>
+      <button class="btn sec" style="padding:4px 9px" onclick="chg('${u.email}',this)">Save</button></td>
+      <td><button class="btn ${u.active?'ghost':'sec'}" style="padding:4px 9px" onclick="toggleActive('${u.email}',${u.active?0:1})">${u.active?'Disable':'Enable'}</button></td></tr>`).join('');
+}
+async function chg(email,btn){
+  const sel=btn.parentElement.querySelector('select'); const m=document.getElementById('msg'); m.className='msg';
+  try{ await ICSG.api('/auth/users/'+encodeURIComponent(email)+'/role',{method:'POST',body:JSON.stringify({role:sel.value})});
+    m.className='msg ok'; m.textContent='Updated '+email+' to '+sel.value+'.'; loadUsers();
+  }catch(e){ m.className='msg err'; m.textContent=e.message||'Update failed.'; }
+}
+async function toggleActive(email,active){
+  const m=document.getElementById('msg'); m.className='msg';
+  try{ await ICSG.api('/auth/users/'+encodeURIComponent(email)+'/active',{method:'POST',body:JSON.stringify({active:!!active})});
+    m.className='msg ok'; m.textContent=(active?'Enabled ':'Disabled ')+email+'.'; loadUsers();
+  }catch(e){ m.className='msg err'; m.textContent=e.message||'Could not update account.'; }
+}
+async function loadSettings(){
+  try{ const s=await ICSG.api('/admin/settings');
+    document.getElementById('thr').value=s.threshold;
+    document.getElementById('thrcur').textContent='current: '+s.threshold+(s.percentile?(' · '+s.percentile+'th pct'):''); }catch{}
+}
+async function saveThr(){
+  const m=document.getElementById('setmsg'); m.className='msg';
+  const v=parseFloat(document.getElementById('thr').value);
+  if(!(v>0)){ m.className='msg err'; m.textContent='Threshold must be a positive number.'; return; }
+  try{ const r=await ICSG.api('/admin/settings',{method:'POST',body:JSON.stringify({threshold:v})});
+    m.className='msg ok'; m.textContent='Threshold updated: '+r.previous+' → '+r.threshold+'.'; loadSettings();
+  }catch(e){ m.className='msg err'; m.textContent=e.message||'Could not update threshold.'; }
+}
+async function loadActivity(){
+  try{ const a=await ICSG.api('/admin/activity');
+    document.getElementById('s_req').textContent=a.requests_total;
+    document.getElementById('s_anom').textContent=a.anomalies_total;
+    document.getElementById('s_model').textContent=a.model_loaded?'loaded':'not loaded';
+  }catch{}
+}
+(async()=>{
+  const gate=document.getElementById('gate');
+  if(!ICSG.T.get()){ gate.innerHTML='Please <a href="login.html">log in</a> as an admin.'; return; }
+  try{
+    const me=await ICSG.api('/auth/me');
+    if(me.role!=='admin'){ gate.innerHTML='This page is for admins only. You are signed in as <b>'+me.role+'</b>. <a href="account.html">Go to your account</a>.'; return; }
+    gate.classList.add('hidden'); document.getElementById('body').classList.remove('hidden');
+    await loadUsers(); await loadSettings(); await loadActivity();
+  }catch(e){ ICSG.T.clear(); gate.innerHTML='Session expired. Please <a href="login.html">log in</a> again.'; }
+})();
+</script></body></html>

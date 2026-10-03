@@ -1,0 +1,63 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Register · ICS Guardian</title>
+<link rel="icon" href="assets/logo.svg"/>
+<link rel="stylesheet" href="assets/app.css?v=9"/>
+<script>
+/* Auth gate: runs before the page paints so protected content never flashes.
+   - not logged in            -> everything except login/register redirects to login
+   - logged in on login/reg   -> bounce to home
+   - admin-only pages         -> operators are sent to their account page          */
+document.documentElement.style.visibility='hidden';
+(function(){
+  try{
+    var page=(location.pathname.split('/').pop()||'index.html');
+    var PUBLIC={'login.html':1,'register.html':1};
+    // admin-only pages: the admin panel + the tabs operators are not allowed to see
+    var ADMIN={'admin.html':1,'architecture.html':1,'devsecops.html':1,'media.html':1};
+    var tok=sessionStorage.getItem('icsg_token'), user=null;
+    try{ user=JSON.parse(sessionStorage.getItem('icsg_user')||'null'); }catch(e){}
+    function show(){ document.documentElement.style.visibility=''; }
+    if(PUBLIC[page]){ if(tok){ location.replace('index.html'); return; } return show(); }
+    if(!tok){ location.replace('login.html'); return; }
+    if(ADMIN[page] && (!user || user.role!=='admin')){ location.replace(page==='admin.html'?'account.html':'index.html'); return; }
+    show();
+  }catch(e){ document.documentElement.style.visibility=''; }
+})();
+</script></head><body>
+<main>
+  <div class="authwrap">
+    <div class="card">
+      <h1 style="font-size:22px;margin:0 0 4px">Create your account</h1>
+      <p style="color:var(--mut);margin:0 0 14px;font-size:14px">Sign up as an <b>operator</b> to run the detector on your own data.</p>
+      <form id="f">
+        <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" required></div>
+        <div class="field"><label>Password <span style="color:var(--mut)">(min 6 characters)</span></label>
+          <input id="pw" type="password" autocomplete="new-password" minlength="6" required></div>
+        <div class="field"><label>Confirm password</label><input id="pw2" type="password" required></div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--mut);margin:-4px 0 12px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="showpw" style="width:16px;height:16px;cursor:pointer"> Show passwords</label>
+        <button class="btn" style="width:100%" type="submit">Create account</button>
+        <div id="msg" class="msg"></div>
+      </form>
+      <p style="font-size:13px;color:var(--mut);margin:14px 0 0">Already have an account? <a href="login.html">Log in</a></p>
+    </div>
+  </div>
+</main>
+<script src="assets/app.js?v=9"></script>
+<script>
+ICSG.api('/health').catch(()=>{ const m=document.getElementById('msg'); m.className='msg err';
+  m.innerHTML='Backend not reachable. Run <b>docker compose up</b> and open <b>http://localhost:8000</b> (sign-up needs the server).'; });
+document.getElementById('showpw').addEventListener('change', e=>{ const t=e.target.checked?'text':'password'; pw.type=t; pw2.type=t; });
+document.getElementById('f').addEventListener('submit', async e=>{
+  e.preventDefault(); const m=document.getElementById('msg'); m.className='msg';
+  if(pw.value!==pw2.value){ m.className='msg err'; m.textContent='Passwords do not match.'; return; }
+  try{
+    const r=await ICSG.api('/auth/register',{method:'POST',body:JSON.stringify({
+      email:email.value.trim(), password:pw.value})});
+    ICSG.T.set(r.access_token,{email:r.email,role:r.role});
+    m.className='msg ok'; m.textContent='Account created. Redirecting...';
+    setTimeout(()=>location.href='index.html',600);
+  }catch(err){ m.className='msg err'; m.textContent = err.status===409?'That email is already registered.':(err.message||'Registration failed. Is the API running?'); }
+});
+</script></body></html>

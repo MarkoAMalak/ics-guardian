@@ -1,0 +1,95 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>My Account · ICS Guardian</title>
+<link rel="icon" href="assets/logo.svg"/>
+<link rel="stylesheet" href="assets/app.css?v=9"/>
+<script>
+/* Auth gate: runs before the page paints so protected content never flashes.
+   - not logged in            -> everything except login/register redirects to login
+   - logged in on login/reg   -> bounce to home
+   - admin-only pages         -> operators are sent to their account page          */
+document.documentElement.style.visibility='hidden';
+(function(){
+  try{
+    var page=(location.pathname.split('/').pop()||'index.html');
+    var PUBLIC={'login.html':1,'register.html':1};
+    // admin-only pages: the admin panel + the tabs operators are not allowed to see
+    var ADMIN={'admin.html':1,'architecture.html':1,'devsecops.html':1,'media.html':1};
+    var tok=sessionStorage.getItem('icsg_token'), user=null;
+    try{ user=JSON.parse(sessionStorage.getItem('icsg_user')||'null'); }catch(e){}
+    function show(){ document.documentElement.style.visibility=''; }
+    if(PUBLIC[page]){ if(tok){ location.replace('index.html'); return; } return show(); }
+    if(!tok){ location.replace('login.html'); return; }
+    if(ADMIN[page] && (!user || user.role!=='admin')){ location.replace(page==='admin.html'?'account.html':'index.html'); return; }
+    show();
+  }catch(e){ document.documentElement.style.visibility=''; }
+})();
+</script></head><body>
+<main id="main">
+  <div class="pagehead"><h1>My Account</h1><p id="sub">Your workspace.</p></div>
+  <div id="gate" class="note">Checking your session...</div>
+  <div id="body" class="hidden">
+    <div class="grid c3" style="margin-bottom:14px">
+      <div class="card"><div class="l" style="color:var(--mut);font-size:12px">Signed in as</div><div id="uemail" style="font-weight:700;font-size:15px"></div></div>
+      <div class="card"><div class="l" style="color:var(--mut);font-size:12px">Role</div><div id="urole" style="font-weight:700"></div></div>
+      <div class="card"><div class="l" style="color:var(--mut);font-size:12px">Service</div><div style="font-weight:700">Detection API</div></div>
+    </div>
+    <h2 class="sec">What you can do</h2>
+    <div class="card" id="capcard"><div id="caps" class="capgrid"></div></div>
+
+    <h2 class="sec">Run the detector on your data</h2>
+    <iframe class="frame" src="tools/ICS_Guardian_Console_Pro.html" title="Detection console"></iframe>
+
+    <h2 class="sec">Change your password</h2>
+    <div class="card" style="max-width:460px">
+      <form id="pwf">
+        <div class="field"><label>Current password</label><input id="cpw" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label>New password <span style="color:var(--mut)">(min 6)</span></label><input id="npw" type="password" minlength="6" autocomplete="new-password" required></div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--mut);margin:-4px 0 12px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="showpw" style="width:16px;height:16px;cursor:pointer"> Show passwords</label>
+        <button class="btn" type="submit">Update password</button>
+        <div id="pwmsg" class="msg"></div>
+      </form>
+    </div>
+    <div id="adminlink"></div>
+  </div>
+</main>
+<script src="assets/app.js?v=9"></script>
+<script>
+const CAP_LABELS={
+  run_detector:['Run the detector','Score your own data with the deployed model.'],
+  view_dashboards:['View dashboards','Open the SOC monitor, live demo and monitoring pages.'],
+  view_account:['Manage your account','See your profile and session.'],
+  change_own_password:['Change your password','Update your own sign-in password.'],
+  manage_users:['Manage users','List every account on the platform.'],
+  change_roles:['Change roles','Promote or demote users between operator and admin.'],
+  enable_disable_users:['Enable / disable users','Turn accounts on or off.'],
+  view_activity:['View system activity','See scoring volume, anomalies and latency.'],
+  manage_settings:['Change detection settings','Adjust the live anomaly threshold.']
+};
+(async()=>{
+  const gate=document.getElementById('gate');
+  if(!ICSG.T.get()){ gate.innerHTML='Please <a href="login.html">log in</a> to view your account.'; return; }
+  try{
+    const me=await ICSG.api('/auth/me');
+    document.getElementById('uemail').textContent=me.email;
+    document.getElementById('urole').innerHTML='<span class="badge-role '+me.role+'">'+me.role+'</span>';
+    const caps=me.capabilities||[];
+    document.getElementById('caps').innerHTML=caps.map(c=>{
+      const l=CAP_LABELS[c]||[c,'']; return `<div class="capitem"><div class="ct">✓ ${l[0]}</div><div class="cd">${l[1]}</div></div>`;
+    }).join('');
+    if(me.role==='admin'){ document.getElementById('adminlink').innerHTML=
+      '<div class="note" style="margin-top:14px">You are an <b>admin</b>. Open the <a href="admin.html">Admin panel</a> to manage users and settings.</div>'; }
+    else { document.getElementById('adminlink').innerHTML=
+      '<div class="note" style="margin-top:14px">You are an <b>operator</b>. User management and detection settings are admin-only.</div>'; }
+    gate.classList.add('hidden'); document.getElementById('body').classList.remove('hidden');
+  }catch(e){ ICSG.T.clear(); gate.innerHTML='Session expired. Please <a href="login.html">log in</a> again.'; }
+})();
+document.getElementById('showpw').addEventListener('change',e=>{const t=e.target.checked?'text':'password';cpw.type=t;npw.type=t;});
+document.getElementById('pwf').addEventListener('submit',async e=>{
+  e.preventDefault(); const m=document.getElementById('pwmsg'); m.className='msg';
+  try{ await ICSG.api('/auth/change-password',{method:'POST',body:JSON.stringify({current_password:cpw.value,new_password:npw.value})});
+    m.className='msg ok'; m.textContent='Password updated.'; cpw.value=''; npw.value='';
+  }catch(err){ m.className='msg err'; m.textContent=err.message||'Could not change password.'; }
+});
+</script></body></html>

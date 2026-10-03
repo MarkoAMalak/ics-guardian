@@ -1,0 +1,59 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Home · ICS Guardian</title>
+<link rel="icon" href="assets/logo.svg"/>
+<link rel="stylesheet" href="assets/app.css?v=9"/>
+<script>
+/* Auth gate: runs before the page paints so protected content never flashes.
+   - not logged in            -> everything except login/register redirects to login
+   - logged in on login/reg   -> bounce to home
+   - admin-only pages         -> operators are sent to their account page          */
+document.documentElement.style.visibility='hidden';
+(function(){
+  try{
+    var page=(location.pathname.split('/').pop()||'index.html');
+    var PUBLIC={'login.html':1,'register.html':1};
+    // admin-only pages: the admin panel + the tabs operators are not allowed to see
+    var ADMIN={'admin.html':1,'architecture.html':1,'devsecops.html':1,'media.html':1};
+    var tok=sessionStorage.getItem('icsg_token'), user=null;
+    try{ user=JSON.parse(sessionStorage.getItem('icsg_user')||'null'); }catch(e){}
+    function show(){ document.documentElement.style.visibility=''; }
+    if(PUBLIC[page]){ if(tok){ location.replace('index.html'); return; } return show(); }
+    if(!tok){ location.replace('login.html'); return; }
+    if(ADMIN[page] && (!user || user.role!=='admin')){ location.replace(page==='admin.html'?'account.html':'index.html'); return; }
+    show();
+  }catch(e){ document.documentElement.style.visibility=''; }
+})();
+</script></head><body>
+<main>
+  <section class="hero">
+    <h1>Protect your <span>water-chlorination</span> plant<br>from cyber attacks</h1>
+    <p>ICS Guardian watches both the physical process and the network, fuses them into one detector,
+       and serves it as a secured, auto-scaling cloud service built with a full DevSecOps pipeline.</p>
+    <div class="cta">
+      <a class="btn" href="register.html">Sign up for the service</a>
+      <a class="btn sec" href="live-demo.html">See the live demo</a>
+      <a class="btn ghost" href="about.html">How it works</a>
+    </div>
+  </section>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v am">0.94</div><div class="l">ROC-AUC (DenseAE, SWaT)</div></div>
+    <div class="kpi"><div class="v">0.80</div><div class="l">PR-AUC (honest, no tuning)</div></div>
+    <div class="kpi"><div class="v ok">2 / 2</div><div class="l">attack types detected</div></div>
+    <div class="kpi"><div class="v">45</div><div class="l">sensor/network features</div></div>
+  </div>
+
+  <h2 class="sec">Explore the platform</h2>
+  <div class="grid c3">
+    <a class="tile" href="live-demo.html"><div class="ic">🎛️</div><h3>Live OT-Loop Demo</h3><p>Watch the plant, the attack, and the fused alarm in real time.</p></a>
+    <a class="tile" href="soc-dashboard.html"><div class="ic">🛡️</div><h3>SOC Dashboard</h3><p>Detection on the real SWaT A6 attack trace.</p></a>
+    <a class="tile" href="console.html"><div class="ic">🧪</div><h3>Detection Console</h3><p>Score your own data with the deployed model, in-browser.</p></a>
+    <a class="tile" href="architecture.html"><div class="ic">🏗️</div><h3>Architecture</h3><p>From model to secured container to Kubernetes.</p></a>
+    <a class="tile" href="devsecops.html"><div class="ic">🔒</div><h3>DevSecOps</h3><p>Six security gates on every push; hardened container.</p></a>
+    <a class="tile" href="monitoring.html"><div class="ic">📈</div><h3>Monitoring</h3><p>Live request, anomaly and latency panels.</p></a>
+  </div>
+
+  <div class="note" style="margin-top:22px">New here? <a href="register.html">Create an operator account</a> to run the detector on your own data,
+     or explore the demos above without signing in.</div>
+</main><script src="assets/app.js?v=9"></script></body></html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>About · ICS Guardian</title>
+<link rel="icon" href="assets/logo.svg"/>
+<link rel="stylesheet" href="assets/app.css?v=9"/>
+<script>
+/* Auth gate: runs before the page paints so protected content never flashes.
+   - not logged in            -> everything except login/register redirects to login
+   - logged in on login/reg   -> bounce to home
+   - admin-only pages         -> operators are sent to their account page          */
+document.documentElement.style.visibility='hidden';
+(function(){
+  try{
+    var page=(location.pathname.split('/').pop()||'index.html');
+    var PUBLIC={'login.html':1,'register.html':1};
+    // admin-only pages: the admin panel + the tabs operators are not allowed to see
+    var ADMIN={'admin.html':1,'architecture.html':1,'devsecops.html':1,'media.html':1};
+    var tok=sessionStorage.getItem('icsg_token'), user=null;
+    try{ user=JSON.parse(sessionStorage.getItem('icsg_user')||'null'); }catch(e){}
+    function show(){ document.documentElement.style.visibility=''; }
+    if(PUBLIC[page]){ if(tok){ location.replace('index.html'); return; } return show(); }
+    if(!tok){ location.replace('login.html'); return; }
+    if(ADMIN[page] && (!user || user.role!=='admin')){ location.replace(page==='admin.html'?'account.html':'index.html'); return; }
+    show();
+  }catch(e){ document.documentElement.style.visibility=''; }
+})();
+</script></head><body>
+<main>
+  <div class="pagehead"><h1>About the project</h1><p>The idea, how the detector works, and the honest results.</p></div>
+
+  <h2 class="sec">The problem</h2>
+  <div class="card"><p style="margin:0">A water-treatment plant keeps chlorine inside a safe band. The controllers trust whatever the
+    sensors report, so an attacker who <b>spoofs a sensor reading</b> can push the real chlorine to an unsafe level while the
+    screen still looks normal - or <b>disrupt the network</b> to blind the operators. Classic IT security does not see the physics.</p></div>
+
+  <h2 class="sec">How it works - fusion</h2>
+  <div class="grid c3">
+    <div class="card"><h3 style="margin:0 0 6px;color:#7fb0ff">Process branch</h3><p style="margin:0;color:var(--mut)">An autoencoder on the plant signals (level, flow, chlorine, pump, valve). Catches a spoofed sensor that looks normal on the network.</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;color:#f2a44e">Network branch</h3><p style="margin:0;color:var(--mut)">An autoencoder on the OT-network signals (packet rate, connections). Catches a flood/DoS that looks normal in the physics.</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;color:#f5c451">Fusion (OR)</h3><p style="margin:0;color:var(--mut)">Alarm if <i>either</i> branch fires. Neither attack type can hide - no blind spot.</p></div>
+  </div>
+
+  <h2 class="sec">Results (honest, unsupervised)</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="v am">0.94</div><div class="l">ROC-AUC (DenseAE)</div></div>
+    <div class="kpi"><div class="v">0.80</div><div class="l">PR-AUC</div></div>
+    <div class="kpi"><div class="v ok">100%</div><div class="l">attack coverage (fused)</div></div>
+    <div class="kpi"><div class="v">SWaT + WADI</div><div class="l">public ICS testbeds</div></div>
+  </div>
+  <div class="note">Metrics are reported without tuning on the test attacks - realistic, un-inflated numbers. The value is coverage:
+    the fused detector catches both attack classes. Trained only on normal operation (unsupervised).</div>
+
+  <h2 class="sec">Built like real infrastructure</h2>
+  <div class="grid c4">
+    <div class="card"><b>FastAPI</b><p style="margin:4px 0 0;color:var(--mut);font-size:13px">real-time /score API</p></div>
+    <div class="card"><b>Docker</b><p style="margin:4px 0 0;color:var(--mut);font-size:13px">slim, non-root, read-only</p></div>
+    <div class="card"><b>Kubernetes + HPA</b><p style="margin:4px 0 0;color:var(--mut);font-size:13px">auto-scale 2 → 6</p></div>
+    <div class="card"><b>DevSecOps CI/CD</b><p style="margin:4px 0 0;color:var(--mut);font-size:13px">Bandit · pip-audit · Gitleaks · Trivy</p></div>
+  </div>
+  <div class="cta" style="justify-content:flex-start;margin-top:18px">
+    <a class="btn" href="console.html">Try the detector</a>
+    <a class="btn sec" href="devsecops.html">See the DevSecOps output</a>
+  </div>
+</main><script src="assets/app.js?v=9"></script></body></html>
