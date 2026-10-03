@@ -13,14 +13,18 @@ WORKDIR /app
 
 # Install deps first for better layer caching
 COPY requirements.txt .
-# Patch OS packages (e.g. libpcre2) and drop the unused ensurepip wheels, whose
-# bundled old pip/setuptools (with vendored urllib3/msgpack) trip the image scan.
+# 1) Patch OS packages (e.g. libpcre2) and drop the unused ensurepip wheels.
+# 2) Install the runtime dependencies.
+# 3) Remove pip/setuptools/wheel: they are build-time tools only, and pip ships
+#    old vendored urllib3/msgpack/setuptools (pip/_vendor/vendor.txt) that the
+#    image scan flags. The running service never invokes pip.
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/lib/python3.11/ensurepip/_bundled
-RUN pip install --no-cache-dir --upgrade pip setuptools \
-    && pip install --no-cache-dir -r requirements.txt
+    && rm -rf /usr/local/lib/python3.11/ensurepip/_bundled \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y setuptools wheel \
+    && python -m pip uninstall -y pip
 
 # App code
 COPY model.py app.py auth.py ./
