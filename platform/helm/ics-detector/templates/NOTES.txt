@@ -1,0 +1,15 @@
+ICS Anomaly Detection Service deployed as release "{{ .Release.Name }}".
+
+1. Check the pods are ready:
+     kubectl get pods -l app.kubernetes.io/name={{ include "ics-detector.name" . }}
+
+2. Port-forward to reach the API locally:
+     kubectl port-forward svc/{{ include "ics-detector.name" . }} 8000:{{ .Values.service.port }}
+     curl http://localhost:8000/health
+
+{{- if .Values.autoscaling.enabled }}
+3. Autoscaling is ON ({{ .Values.autoscaling.minReplicas }}–{{ .Values.autoscaling.maxReplicas }} replicas at {{ .Values.autoscaling.targetCPUUtilizationPercentage }}% CPU).
+{{- end }}
+
+Remember: mount your trained model artifacts at {{ .Values.artifacts.mountPath }}.
+Until then /health is green and /score returns 503.
