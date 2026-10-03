@@ -1,0 +1,6 @@
+{
+  "threshold": 0.063966,
+  "percentile": 99,
+  "metric": "recon_error",
+  "calibration": "1% false-alarm target on full-resolution normal (Part B recalibration)"
+}
