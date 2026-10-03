@@ -1,0 +1,10 @@
+# Pinned to versions with no known advisories (pip-audit, Oct 2026).
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+numpy==2.3.5
+scikit-learn==1.7.2
+joblib==1.6.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+python-multipart==0.0.32
