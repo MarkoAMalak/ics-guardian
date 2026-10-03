@@ -24,7 +24,9 @@ principle: vulnerabilities are caught in CI, not in production.
 - **Slim** base image (`python:3.11-slim`) to reduce attack surface.
 - **CPU-only** torch — no unnecessary GPU/driver surface in the serving image.
 - Least-privilege GitHub Actions token (`permissions: contents: read`).
-- Model artifacts mounted **read-only** at runtime.
+- Model artifacts baked into the scanned image (mounted **read-only** in docker-compose).
+- OS packages patched at build time; pip, setuptools and wheel removed from the runtime image.
+- Model weights loaded with `torch.load(weights_only=True)`.
 - No secrets in code or image; configuration via environment variables.
 
 ## Defense-in-depth (OT context)
