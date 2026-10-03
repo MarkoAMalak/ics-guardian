@@ -1,0 +1,99 @@
+# Plain Kubernetes manifests for the ICS detection service.
+# Apply with:  kubectl apply -f k8s/
+# (For a parameterized install, use the Helm chart in helm/ics-detector instead.)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ics-detector
+  labels:
+    app: ics-detector
+    part-of: ics-devsecops-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ics-detector
+  template:
+    metadata:
+      labels:
+        app: ics-detector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: detector
+          image: ics-detector:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          # Hardened container-level security
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: AUTH_DB
+              value: /app/data/users.db
+            - name: AUTH_SECRET          # create with: kubectl create secret generic ics-detector-auth --from-literal=secret=$(openssl rand -hex 32)
+              valueFrom:
+                secretKeyRef:
+                  name: ics-detector-auth
+                  key: secret
+                  optional: true
+          volumeMounts:
+            # The root filesystem is read-only, so the user store and /tmp need
+            # their own writable volumes. Model artefacts are baked into the image.
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}      # per-pod user store; use a shared database for multi-replica logins
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ics-detector
+  labels:
+    app: ics-detector
+spec:
+  selector:
+    app: ics-detector
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

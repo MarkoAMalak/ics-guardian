@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>ICS Guardian, System Explainer</title>
+<style>
+  html,body{margin:0;background:#070c16;overflow:hidden}
+  #stage{position:relative;width:1280px;height:720px;margin:0 auto;
+    background:radial-gradient(1100px 620px at 62% -12%,#152238 0%,#080e19 60%);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#e8eef7;overflow:hidden}
+  canvas#wire{position:absolute;inset:0;z-index:1}
+  .layer{position:absolute;inset:0;z-index:2}
+  /* header */
+  .brand{position:absolute;left:34px;top:22px;z-index:5}
+  .brand .t{font-size:19px;font-weight:800;letter-spacing:.3px}
+  .brand .s{font-size:12px;color:#8ea3c0;margin-top:2px}
+  .scene-title{position:absolute;right:34px;top:26px;text-align:right;z-index:5}
+  .scene-title .num{font:700 12px ui-monospace,monospace;color:#4a9fe0;letter-spacing:2px}
+  .scene-title .txt{font-size:17px;font-weight:700;margin-top:3px;max-width:520px}
+  /* boxes */
+  .box{position:absolute;background:#101a2c;border:1px solid #24344f;border-radius:12px;
+    transition:border-color .4s,box-shadow .4s,opacity .5s,transform .5s;opacity:.32}
+  .box.dim{opacity:.32}
+  .box.on{opacity:1;border-color:#3a6ea5;box-shadow:0 0 0 1px rgba(58,110,165,.4),0 8px 30px rgba(0,0,0,.4)}
+  .box.alarm{border-color:#ef5350!important;box-shadow:0 0 0 1px rgba(239,83,80,.5),0 0 26px rgba(239,83,80,.35)!important}
+  .box .cap{position:absolute;top:8px;left:12px;font:700 10.5px ui-monospace,monospace;letter-spacing:1px;color:#8ea3c0;text-transform:uppercase}
+  .box .sub{position:absolute;top:8px;right:12px;font:600 10px ui-monospace,monospace;color:#5f7392}
+  .row{position:absolute;left:12px;right:12px;display:flex;justify-content:space-between;font:600 13px ui-monospace,monospace}
+  .row .k{color:#8ea3c0}.row .v{color:#fff}
+  .mini-bar{position:absolute;left:12px;right:12px;height:12px;background:#0b1424;border:1px solid #22304a;border-radius:7px;overflow:hidden}
+  .mini-bar>i{display:block;height:100%;width:12%;background:#3fb27f;border-radius:7px;transition:width .25s,background .3s}
+  .status-big{position:absolute;left:0;right:0;text-align:center;font-weight:800;letter-spacing:.5px;transition:color .3s}
+  /* narration */
+  .narr{position:absolute;left:34px;right:34px;bottom:26px;z-index:6;
+    background:rgba(9,15,26,.72);border:1px solid #22304a;border-radius:12px;padding:14px 18px;min-height:52px;
+    backdrop-filter:blur(4px)}
+  .narr .lead{font-size:15px;line-height:1.5}
+  .narr .lead b{color:#f5c451}
+  .narr .lead .g{color:#3fb27f}.narr .lead .r{color:#ff8a87}.narr .lead .n{color:#4a9fe0}
+  /* progress */
+  .prog{position:absolute;left:0;top:0;height:3px;background:#1d4ed8;z-index:9;width:0}
+  /* intro / outro overlays */
+  .overlay{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    background:radial-gradient(900px 520px at 50% 40%,#16263f 0%,#070c16 70%);transition:opacity .8s}
+  .overlay h1{font-size:40px;margin:0;text-align:center;font-weight:800;letter-spacing:.3px}
+  .overlay .tag{color:#8ea3c0;font-size:18px;margin-top:14px;text-align:center;max-width:760px}
+  .overlay .pill{margin-top:26px;font:700 12px ui-monospace,monospace;letter-spacing:2px;color:#4a9fe0;
+    border:1px solid #24344f;border-radius:999px;padding:8px 18px}
+  .chip{position:absolute;bottom:120px;display:flex;gap:10px;left:50%;transform:translateX(-50%);z-index:9;opacity:0;transition:opacity .6s}
+  .chip span{font:700 11px ui-monospace,monospace;color:#cfe0f5;background:#101a2c;border:1px solid #24344f;
+    border-radius:8px;padding:7px 12px;letter-spacing:.5px}
+  .flash{position:absolute;inset:0;background:#ef5350;opacity:0;z-index:7;pointer-events:none}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font:700 12px ui-monospace,monospace}
+  .badge.g{background:rgba(63,178,127,.16);color:#7fe0ac}
+  .badge.r{background:rgba(239,83,80,.18);color:#ff9b98}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="wire" width="1280" height="720"></canvas>
+  <div class="prog" id="prog"></div>
+
+  <div class="brand">
+    <div class="t">ICS&nbsp;Guardian</div>
+    <div class="s">Cloud-Native DevSecOps platform · water-chlorination security</div>
+  </div>
+  <div class="scene-title">
+    <div class="num" id="s_num">SYSTEM OVERVIEW</div>
+    <div class="txt" id="s_txt"></div>
+  </div>
+
+  <!-- SOURCES -->
+  <div class="box" id="b_sens" style="left:34px;top:150px;width:190px;height:96px">
+    <div class="cap">Sensors &amp; Valves</div>
+    <div class="row" style="top:34px"><span class="k">LIT101</span><span class="v" id="lit">500</span></div>
+    <div class="row" style="top:54px"><span class="k">AIT201 Cl</span><span class="v" id="ait">0.80</span></div>
+    <div class="row" style="top:74px"><span class="k">P101/MV101</span><span class="v" id="pmv">ON / OPEN</span></div>
+  </div>
+  <div class="box" id="b_net" style="left:34px;top:266px;width:190px;height:80px">
+    <div class="cap">OT Network Tap</div>
+    <div class="row" style="top:36px"><span class="k">rate</span><span class="v" id="pkt">180 pkt/s</span></div>
+    <div class="row" style="top:56px"><span class="k">conns</span><span class="v" id="conn">6</span></div>
+  </div>
+
+  <!-- INGEST -->
+  <div class="box" id="b_ing" style="left:296px;top:176px;width:150px;height:150px">
+    <div class="cap">Ingest</div>
+    <div class="row" style="top:40px;font-size:12px"><span class="k">process</span><span class="v">15 feats</span></div>
+    <div class="mini-bar" style="top:60px;height:7px"><i style="width:70%;background:#3fb27f"></i></div>
+    <div class="row" style="top:82px;font-size:12px"><span class="k">network</span><span class="v">12 feats</span></div>
+    <div class="mini-bar" style="top:102px;height:7px"><i style="width:55%;background:#4a9fe0"></i></div>
+    <div class="row" style="top:122px;font-size:11px"><span class="k" style="color:#5f7392">read-only feed</span><span class="v"></span></div>
+  </div>
+
+  <!-- MODELS -->
+  <div class="box" id="b_proc" style="left:520px;top:150px;width:200px;height:96px">
+    <div class="cap" style="color:#7fe0ac">Process Model</div>
+    <div class="sub">AE</div>
+    <div class="row" style="top:34px;font-size:12px"><span class="k">recon score</span><span class="v" id="pscore">×0.3</span></div>
+    <div class="mini-bar" style="top:56px"><i id="pbar" style="width:12%;background:#3fb27f"></i></div>
+    <div class="row" style="top:76px;font-size:10.5px"><span class="k" style="color:#5f7392">trained on normal only</span><span class="v"></span></div>
+  </div>
+  <div class="box" id="b_nmod" style="left:520px;top:266px;width:200px;height:96px">
+    <div class="cap" style="color:#8fc4ef">Network Model</div>
+    <div class="sub">AE</div>
+    <div class="row" style="top:34px;font-size:12px"><span class="k">recon score</span><span class="v" id="nscore">×0.3</span></div>
+    <div class="mini-bar" style="top:56px"><i id="nbar" style="width:12%;background:#4a9fe0"></i></div>
+    <div class="row" style="top:76px;font-size:10.5px"><span class="k" style="color:#5f7392">trained on normal only</span><span class="v"></span></div>
+  </div>
+
+  <!-- FUSION -->
+  <div class="box" id="b_fus" style="left:772px;top:198px;width:140px;height:120px">
+    <div class="cap" style="color:#f5c451">Fusion</div>
+    <div class="status-big" id="fus_sev" style="top:44px;font-size:26px;color:#f5c451">×0.3</div>
+    <div class="row" style="top:88px;font-size:11px;justify-content:center"><span class="k">score-level&nbsp;·&nbsp;max</span></div>
+  </div>
+
+  <!-- DECISION -->
+  <div class="box" id="b_dec" style="left:964px;top:176px;width:246px;height:150px">
+    <div class="cap">Decision</div>
+    <div class="status-big" id="dec_txt" style="top:52px;font-size:30px;color:#7fe0ac">● NOMINAL</div>
+    <div class="row" style="top:104px;font-size:11.5px;justify-content:center"><span class="k" id="dec_sub">process &amp; network agree</span></div>
+  </div>
+
+  <!-- RESPONSE CHAIN (revealed later) -->
+  <div class="box" id="r_soc" style="left:296px;top:452px;width:150px;height:74px">
+    <div class="cap">SOC Alert</div>
+    <div class="row" style="top:38px;font-size:12px"><span class="k">dashboard</span><span class="v">🔴</span></div>
+  </div>
+  <div class="box" id="r_tri" style="left:486px;top:452px;width:150px;height:74px">
+    <div class="cap">Triage</div>
+    <div class="row" style="top:38px;font-size:12px"><span class="k">severity</span><span class="v">P1</span></div>
+  </div>
+  <div class="box" id="r_ir" style="left:676px;top:452px;width:170px;height:74px">
+    <div class="cap">IR Playbook</div>
+    <div class="row" style="top:38px;font-size:11px"><span class="k">contain · notify</span></div>
+  </div>
+  <div class="box" id="r_plc" style="left:886px;top:452px;width:220px;height:74px">
+    <div class="cap" style="color:#ffcf8f">PLC → Safe State</div>
+    <div class="row" style="top:36px;font-size:10.5px"><span class="k" style="color:#ffcf8f">human-gated · engineer acts</span></div>
+  </div>
+
+  <div class="chip" id="chips">
+    <span>FastAPI + Docker</span><span>CI/CD · Bandit·Trivy</span><span>Kubernetes + HPA</span>
+    <span>Prometheus</span><span>MITRE ATT&amp;CK for ICS</span>
+  </div>
+
+  <!-- narration -->
+  <div class="narr"><div class="lead" id="narr">Initializing…</div></div>
+
+  <div class="flash" id="flash"></div>
+
+  <!-- INTRO overlay -->
+  <div class="overlay" id="intro">
+    <h1>ICS&nbsp;Guardian</h1>
+    <div class="tag">A cloud-native platform that protects a water-chlorination plant by fusing
+      <b style="color:#7fe0ac">what the process is doing</b> with <b style="color:#8fc4ef">what the network is doing</b> -
+      and reacting the moment something is wrong.</div>
+    <div class="pill">SYSTEM WALKTHROUGH</div>
+  </div>
+  <!-- OUTRO overlay -->
+  <div class="overlay" id="outro" style="opacity:0;pointer-events:none">
+    <h1 style="font-size:34px">Detect. Fuse. Respond.</h1>
+    <div class="tag">Two blind spots, one detector with none. Secured in the pipeline,
+      deployed in the cluster, human-gated at the PLC.</div>
+    <div class="pill" style="color:#7fe0ac;border-color:#2c6b48">CLOUD-NATIVE DEVSECOPS · ICS SECURITY</div>
+  </div>
+</div>
+
+<script>
+const S = id => document.getElementById(id);
+const cv = S('wire'), cx = cv.getContext('2d');
+
+// ---- anchors (stage coords) ----
+const A = {
+  sens:[224,198], net:[224,306], ingIn:[296,250],
+  ingP:[446,214], ingN:[446,300], pIn:[520,198], nIn:[520,306],
+  pOut:[720,198], nOut:[720,306], fInP:[772,236], fInN:[772,286],
+  fOut:[912,258], dIn:[964,250],
+  decDown:[1087,326], soc:[371,452], tri:[561,452], ir:[761,452], plc:[996,452],
+};
+// connectors: [from,to, group]
+const CONN = [
+  ['sens','ingIn','src'],['net','ingIn','src'],
+  ['ingP','pIn','feat'],['ingN','nIn','feat'],
+  ['pOut','fInP','det'],['nOut','fInN','det'],
+  ['fOut','dIn','fuse'],
+];
+// response path points
+const RESP = [ [1087,326],[1087,400],[371,400],[371,452] ]; // dec -> soc
+const RESP2 = [ ['soc','tri'],['tri','ir'],['ir','plc'] ];
+
+let tokens = []; // {pts,t0,dur,color,r}
+function emit(fromA,toA,color,dur){ tokens.push({pts:[A[fromA]||fromA,A[toA]||toA],t0:clock,dur:dur||1.1,color,r:3.2}); }
+function emitPath(pts,color,dur){ tokens.push({pts,t0:clock,dur:dur||1.4,color,r:3.6}); }
+
+function lerp(a,b,u){return [a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u];}
+function polyPos(pts,u){ // u 0..1 across whole polyline
+  if(pts.length===2)return lerp(pts[0],pts[1],u);
+  const segs=pts.length-1, s=Math.min(Math.floor(u*segs),segs-1); const lu=u*segs-s;
+  return lerp(pts[s],pts[s+1],lu);
+}
+
+// draw a connector line between two anchors (optionally multi-point)
+function drawLine(pts,glow,color){
+  cx.beginPath(); cx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++)cx.lineTo(pts[i][0],pts[i][1]);
+  cx.strokeStyle=color||'rgba(70,96,140,'+(glow?0.9:0.32)+')'; cx.lineWidth=glow?2.4:1.6;
+  if(glow){cx.shadowColor=color||'#4a9fe0';cx.shadowBlur=8;} cx.stroke(); cx.shadowBlur=0;
+}
+
+let flags={src:false,feat:false,det:false,fuse:false,resp:false,attack:false,flood:false};
+function connPts(c){ return [A[c[0]],A[c[1]]]; }
+
+function drawWires(){
+  cx.clearRect(0,0,1280,720);
+  // top pipeline connectors
+  for(const c of CONN){
+    const active = flags[c[2]] || (c[2]==='src'&&flags.src);
+    let col=null;
+    if(flags.attack && (c[2]==='det'||c[2]==='fuse')) col='rgba(239,83,80,.9)';
+    drawLine(connPts(c), active, col);
+  }
+  // response wires
+  if(flags.resp){
+    drawLine(RESP, true, 'rgba(239,83,80,.75)');
+    for(const [a,b] of RESP2) drawLine([A[a],A[b]], true, 'rgba(239,83,80,.7)');
+  }
+  // tokens
+  for(const tk of tokens){
+    const u=(clock-tk.t0)/tk.dur; if(u<0||u>1)continue;
+    const p=polyPos(tk.pts,u);
+    cx.beginPath(); cx.arc(p[0],p[1],tk.r,0,7); cx.fillStyle=tk.color;
+    cx.shadowColor=tk.color; cx.shadowBlur=10; cx.fill(); cx.shadowBlur=0;
+  }
+  tokens=tokens.filter(tk=>(clock-tk.t0)/tk.dur<=1.05);
+}
+
+// ---- value tickers ----
+function jitter(base,amp){return base+(Math.random()-0.5)*2*amp;}
+function setBar(el,ratio,color){ el.style.width=Math.min(ratio/2.5,1)*100+'%'; el.style.background=ratio>=1?'#ef5350':color; }
+
+// ---- scene script ----
+const NARR = {
+  s1:'The plant streams <span class="g">sensor &amp; valve readings</span> every second, tank level, chlorine, pump and valve state, while a passive tap mirrors the <span class="n">OT network traffic</span>. Two independent views of the same plant.',
+  s2:'Both streams flow into <b>Ingest</b> over a <b>read-only</b> feed. It turns them into features: physical-process features and network-traffic features. The detector can never write back to control.',
+  s3:'Two expert models score in parallel, each an autoencoder <b>trained only on normal operation</b>, so anything unfamiliar looks anomalous. No attack labels are ever used.',
+  s4:'The two scores are fused at score level by taking the <b>maximum</b>. While the plant is healthy, the fused score stays low and the decision is <span class="g">NOMINAL</span>.',
+  s5a:'An attacker <b class="r">spoofs the chlorine sensor</b>: the operator still sees a safe 0.80 mg/L while the <span class="r">true dosing collapses</span> and the pump is forced off. The <span class="g">process model</span> catches it, the network looks normal.',
+  s5b:'Now a <b class="r">network flood</b> hits the OT segment. The <span class="n">network model</span> lights up. Each attack is invisible to one model, but the <b>fused</b> detector catches <b>both</b>. No blind spot.',
+  s6:'The alarm drives an automated response: <b>SOC alert → triage → IR playbook</b>. Any action on the controller is <b>human-gated</b>, the system recommends, an engineer moves the loop to a <b>safe state</b>.',
+};
+
+// scene timeline (seconds). Each: t0,t1,num,txt,narr,enter(),during(p)
+const SCENES = [
+  {t0:0,t1:5,num:'',txt:'',narr:'',enter(){},during(){}},
+  {t0:5,t1:16,num:'STEP 1 / 6',txt:'Two live data sources',narr:NARR.s1,
+    enter(){ setOn(['b_sens','b_net']); flags.src=true; },
+    during(){ tickNormal(); if(frame%22===0){emit('sens','ingIn','#3fb27f');emit('net','ingIn','#4a9fe0');} }},
+  {t0:16,t1:25,num:'STEP 2 / 6',txt:'Ingestion & feature engineering',narr:NARR.s2,
+    enter(){ setOn(['b_sens','b_net','b_ing']); flags.feat=true; },
+    during(){ tickNormal(); if(frame%16===0){emit('sens','ingIn','#3fb27f');emit('net','ingIn','#4a9fe0');emit('ingP','pIn','#3fb27f');emit('ingN','nIn','#4a9fe0');} }},
+  {t0:25,t1:37,num:'STEP 3 / 6',txt:'Unsupervised detection, two models',narr:NARR.s3,
+    enter(){ setOn(['b_ing','b_proc','b_nmod']); flags.det=true; },
+    during(){ tickNormal(); if(frame%16===0){emit('ingP','pIn','#3fb27f');emit('ingN','nIn','#4a9fe0');emit('pOut','fInP','#3fb27f');emit('nOut','fInN','#4a9fe0');} }},
+  {t0:37,t1:46,num:'STEP 4 / 6',txt:'Score-level fusion → decision',narr:NARR.s4,
+    enter(){ setOn(['b_proc','b_nmod','b_fus','b_dec']); flags.fuse=true; setNominal(); },
+    during(){ tickNormal(); if(frame%18===0){emit('pOut','fInP','#3fb27f');emit('nOut','fInN','#4a9fe0');emit('fOut','dIn','#f5c451');} }},
+  {t0:46,t1:56,num:'STEP 5 / 6',txt:'Anomaly, sensor spoof',narr:NARR.s5a,
+    enter(){ flags.attack=true; S('b_sens').classList.add('alarm'); S('b_proc').classList.add('alarm'); doFlash(); },
+    during(){ tickSpoof(); if(frame%12===0){emit('sens','ingIn','#ef5350');emit('ingP','pIn','#ef5350');emit('pOut','fInP','#ef5350');emit('fOut','dIn','#ef5350');} setAlarm('process'); }},
+  {t0:56,t1:64,num:'STEP 5 / 6',txt:'Anomaly, network disruption',narr:NARR.s5b,
+    enter(){ S('b_sens').classList.remove('alarm'); S('b_net').classList.add('alarm'); S('b_nmod').classList.add('alarm'); doFlash(); },
+    during(){ tickFlood(); if(frame%12===0){emit('net','ingIn','#ef5350');emit('ingN','nIn','#ef5350');emit('nOut','fInN','#ef5350');emit('fOut','dIn','#ef5350');} setAlarm('both'); }},
+  {t0:64,t1:76,num:'STEP 6 / 6',txt:'Automated, human-gated response',narr:NARR.s6,
+    enter(){ flags.resp=true; setOn(['r_soc','r_tri','r_ir','r_plc']); S('b_dec').classList.add('alarm');
+      emitPath(RESP,'#ef5350',1.4);
+      setTimeout(()=>emit('soc','tri','#ef5350',1.0),700);
+      setTimeout(()=>emit('tri','ir','#ef5350',1.0),1500);
+      setTimeout(()=>emit('ir','plc','#ffcf8f',1.0),2400); },
+    during(){ tickFlood(); setAlarm('both');
+      if(frame%40===0){ emitPath(RESP,'#ef5350',1.4);
+        setTimeout(()=>emit('soc','tri','#ef5350',1.0),700);
+        setTimeout(()=>emit('tri','ir','#ef5350',1.0),1400);
+        setTimeout(()=>emit('ir','plc','#ffcf8f',1.0),2100);} }},
+  {t0:76,t1:82,num:'',txt:'',narr:'',enter(){},during(){}},
+];
+
+function setOn(ids){ ids.forEach(id=>S(id).classList.add('on')); }
+function setNominal(){ S('dec_txt').textContent='● NOMINAL'; S('dec_txt').style.color='#7fe0ac';
+  S('b_dec').classList.remove('alarm'); S('dec_sub').textContent='process & network agree'; }
+function setAlarm(src){ S('dec_txt').textContent='● ALARM'; S('dec_txt').style.color='#ff8a87';
+  S('b_dec').classList.add('alarm'); S('b_fus').classList.add('alarm');
+  S('dec_sub').textContent = src==='both'?'fused: process & network':'fused: '+src+' branch'; }
+
+// tickers
+function tickNormal(){
+  S('lit').textContent=jitter(500,3).toFixed(0);
+  S('ait').textContent=jitter(0.80,0.02).toFixed(2); S('ait').style.color='#fff';
+  S('pmv').textContent='ON / OPEN'; S('pmv').style.color='#fff';
+  S('pkt').textContent=jitter(180,8).toFixed(0)+' pkt/s'; S('conn').textContent='6';
+  const p=Math.max(0.15,jitter(0.3,0.1)), n=Math.max(0.15,jitter(0.3,0.1));
+  S('pscore').textContent='×'+p.toFixed(1); setBar(S('pbar'),p,'#3fb27f');
+  S('nscore').textContent='×'+n.toFixed(1); setBar(S('nbar'),n,'#4a9fe0');
+  const f=Math.max(p,n); S('fus_sev').textContent='×'+f.toFixed(1); S('fus_sev').style.color='#f5c451';
+}
+function tickSpoof(){
+  S('lit').textContent=jitter(500,3).toFixed(0);
+  S('ait').textContent=jitter(0.80,0.015).toFixed(2); S('ait').style.color='#ff8a87';
+  S('pmv').textContent='OFF / OPEN'; S('pmv').style.color='#ff8a87';
+  S('pkt').textContent=jitter(180,8).toFixed(0)+' pkt/s'; S('conn').textContent='6';
+  const p=jitter(9.6,1.0), n=Math.max(0.15,jitter(0.3,0.1));
+  S('pscore').textContent='×'+p.toFixed(1); setBar(S('pbar'),p,'#3fb27f');
+  S('nscore').textContent='×'+n.toFixed(1); setBar(S('nbar'),n,'#4a9fe0');
+  S('fus_sev').textContent='×'+p.toFixed(1); S('fus_sev').style.color='#ff8a87';
+}
+function tickFlood(){
+  S('lit').textContent=jitter(510,10).toFixed(0);
+  S('ait').textContent=jitter(0.7,0.15).toFixed(2); S('ait').style.color='#fff';
+  S('pmv').textContent='ON / OPEN'; S('pmv').style.color='#fff';
+  S('pkt').textContent=jitter(910,40).toFixed(0)+' pkt/s'; S('pkt').style.color='#ff8a87'; S('conn').textContent='42';
+  const n=jitter(20,3.0), p=jitter(3,1.2);
+  S('pscore').textContent='×'+p.toFixed(1); setBar(S('pbar'),p,'#3fb27f');
+  S('nscore').textContent='×'+n.toFixed(1); setBar(S('nbar'),n,'#4a9fe0');
+  S('fus_sev').textContent='×'+n.toFixed(1); S('fus_sev').style.color='#ff8a87';
+}
+function doFlash(){ const f=S('flash'); f.style.transition='none'; f.style.opacity='0.28';
+  requestAnimationFrame(()=>{ f.style.transition='opacity .5s'; f.style.opacity='0'; }); }
+
+// ---- master clock ----
+let clock=0, frame=0, startT=null, curScene=-1;
+const TOTAL=82;
+function loop(ts){
+  if(startT===null)startT=ts; clock=(ts-startT)/1000; frame++;
+  S('prog').style.width=Math.min(clock/TOTAL,1)*100+'%';
+  // intro/outro
+  S('intro').style.opacity = clock<4.2 ? 1 : 0;
+  S('intro').style.pointerEvents='none';
+  if(clock>=76){ S('outro').style.opacity=1; S('chips').style.opacity=1; }
+  // scene find
+  let si=SCENES.findIndex(s=>clock>=s.t0&&clock<s.t1);
+  if(si===-1)si=SCENES.length-1;
+  if(si!==curScene){ curScene=si; const sc=SCENES[si];
+    if(sc.num!==undefined){ S('s_num').textContent=sc.num; S('s_txt').textContent=sc.txt; }
+    if(sc.narr){ S('narr').innerHTML=sc.narr; }
+    sc.enter&&sc.enter();
+  }
+  SCENES[si].during&&SCENES[si].during((clock-SCENES[si].t0)/(SCENES[si].t1-SCENES[si].t0));
+  drawWires();
+  if(clock<TOTAL+1) requestAnimationFrame(loop);
+}
+// chips illuminate near the end handled above
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

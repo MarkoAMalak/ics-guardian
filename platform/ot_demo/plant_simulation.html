@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Water-Chlorination ICS, Full Simulation</title>
+<style>
+  html,body{margin:0;background:#05090f;overflow:hidden}
+  #stage{position:relative;width:1280px;height:720px;margin:0 auto;overflow:hidden;
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  canvas{position:absolute;inset:0}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1280" height="720"></canvas></div>
+<script>
+const cv=document.getElementById('c'), x=cv.getContext('2d');
+const W=1280,H=720;
+
+// ---------- palette ----------
+const COL={
+  bg0:'#0b1524', bg1:'#060b13', steel:'#3a5170', steelD:'#243449',
+  waterSafe:['#39c6e0','#1f7fa8'], waterUnsafe:['#b7b25a','#6f6a2e'],
+  pipe:'#2c3f5a', pipeHi:'#4a6a92', ink:'#e8eef7', dim:'#93a6c2',
+  green:'#3fb27f', blue:'#4a9fe0', amber:'#f5c451', red:'#ef5350', chlorine:'#c8f57a'
+};
+const lerp=(a,b,u)=>a+(b-a)*u;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function mix(c1,c2,u){ // hex mix
+  const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const a=p(c1),b=p(c2); return `rgb(${a.map((v,i)=>Math.round(lerp(v,b[i],u))).join(',')})`;
+}
+
+// ---------- sim state ----------
+const S={
+  level:0.55, flow:1, valve:1, pumpOn:1, pumpAng:0,
+  clTrue:0.8, clReported:0.8, pkt:180, conn:6,
+  mode:'normal', // normal | spoof | flood | response | recovered
+  pScore:0.3, nScore:0.3, fused:0.3, alarm:false, fired:'',
+  attackerOn:0, hackBeam:0, respStage:0,
+};
+
+// ---------- drawing helpers ----------
+function roundRect(rx,ry,rw,rh,r){x.beginPath();x.moveTo(rx+r,ry);x.arcTo(rx+rw,ry,rx+rw,ry+rh,r);
+  x.arcTo(rx+rw,ry+rh,rx,ry+rh,r);x.arcTo(rx,ry+rh,rx,ry,r);x.arcTo(rx,ry,rx+rw,ry,r);x.closePath();}
+
+// vertical cylinder tank with animated water
+function tank(cx,topY,w,h,level,colTop,colBot,label,tagVal){
+  const rx=w/2, ey=rx*0.34; // ellipse ry
+  // body shadow
+  x.save();
+  // back/body
+  const bodyGrad=x.createLinearGradient(cx-rx,0,cx+rx,0);
+  bodyGrad.addColorStop(0,'#1a2740');bodyGrad.addColorStop(.5,'#26364f');bodyGrad.addColorStop(1,'#131e30');
+  x.fillStyle=bodyGrad;
+  x.beginPath();
+  x.moveTo(cx-rx,topY); x.lineTo(cx-rx,topY+h);
+  x.ellipse(cx,topY+h,rx,ey,0,Math.PI,0,true); x.lineTo(cx+rx,topY);
+  x.ellipse(cx,topY,rx,ey,0,0,Math.PI,false); x.closePath(); x.fill();
+  // water
+  const wt=topY+h-level*h; // water top y
+  x.save();
+  x.beginPath(); // clip to tank body
+  x.moveTo(cx-rx,topY); x.lineTo(cx-rx,topY+h);
+  x.ellipse(cx,topY+h,rx,ey,0,Math.PI,0,true); x.lineTo(cx+rx,topY);
+  x.clip();
+  const wg=x.createLinearGradient(0,wt,0,topY+h);
+  wg.addColorStop(0,colTop);wg.addColorStop(1,colBot);
+  x.fillStyle=wg;
+  x.beginPath();
+  x.moveTo(cx-rx,wt);
+  for(let i=0;i<=rx*2;i+=8){const px=cx-rx+i;const wy=wt+Math.sin((px*0.05)+clock*3)*3;x.lineTo(px,wy);}
+  x.lineTo(cx+rx,topY+h); x.lineTo(cx-rx,topY+h); x.closePath(); x.fill();
+  // water surface ellipse
+  x.fillStyle=mix(colTop,'#ffffff',0.12);
+  x.beginPath(); x.ellipse(cx,wt,rx,ey*0.8,0,0,Math.PI*2); x.fill();
+  x.restore();
+  // top rim
+  x.strokeStyle='#43597a'; x.lineWidth=3;
+  x.beginPath(); x.ellipse(cx,topY,rx,ey,0,0,Math.PI*2); x.stroke();
+  x.fillStyle='rgba(20,30,48,.9)'; x.beginPath(); x.ellipse(cx,topY,rx,ey,0,0,Math.PI*2); x.fill();
+  // glossy highlight
+  x.strokeStyle='rgba(255,255,255,.10)';x.lineWidth=14;
+  x.beginPath();x.moveTo(cx-rx*0.55,topY+ey);x.lineTo(cx-rx*0.55,topY+h-ey);x.stroke();
+  x.restore();
+  // label
+  x.fillStyle=COL.dim; x.font='700 12px ui-monospace,monospace'; x.textAlign='center';
+  x.fillText(label,cx,topY+h+ey+22);
+  if(tagVal){x.fillStyle=COL.ink;x.font='700 15px ui-monospace,monospace';x.fillText(tagVal,cx,topY+h+ey+42);}
+}
+
+function pipe(pts,w,flow,color){
+  x.lineCap='round';x.lineJoin='round';
+  x.strokeStyle=COL.pipeHi;x.lineWidth=w+6;x.beginPath();x.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++)x.lineTo(pts[i][0],pts[i][1]);x.stroke();
+  x.strokeStyle=COL.pipe;x.lineWidth=w;x.stroke();
+  // flow dashes
+  if(flow>0){x.strokeStyle=color||'rgba(120,200,230,.85)';x.lineWidth=w*0.42;
+    x.setLineDash([10,16]);x.lineDashOffset=-clock*60*flow;x.stroke();x.setLineDash([]);}
+}
+
+function pump(cx,cy,r,on){
+  x.save();x.translate(cx,cy);
+  // casing
+  x.fillStyle='#26364f';x.beginPath();x.arc(0,0,r+7,0,7);x.fill();
+  x.strokeStyle=on?COL.green:COL.red;x.lineWidth=3;x.stroke();
+  x.rotate(S.pumpAng);
+  x.fillStyle=on?'#8fd9b6':'#7d8ba0';
+  for(let i=0;i<4;i++){x.rotate(Math.PI/2);x.beginPath();x.ellipse(r*0.5,0,r*0.5,r*0.2,0,0,7);x.fill();}
+  x.restore();
+  x.fillStyle='#12324f';x.beginPath();x.arc(cx,cy,r*0.22,0,7);x.fill();
+  x.fillStyle=COL.dim;x.font='700 11px ui-monospace,monospace';x.textAlign='center';
+  x.fillText('P101 pump',cx,cy+r+22);
+  x.fillStyle=on?COL.green:COL.red;x.font='700 12px ui-monospace,monospace';
+  x.fillText(on?'RUNNING':'FORCED OFF',cx,cy+r+38);
+}
+
+function valve(cx,cy,open){
+  x.save();x.translate(cx,cy);
+  x.fillStyle='#26364f';roundRect(-20,-16,40,32,5);x.fill();
+  x.strokeStyle=open>0.5?COL.green:COL.amber;x.lineWidth=3;x.stroke();
+  // gate
+  x.fillStyle=open>0.5?COL.green:COL.red;
+  x.save();x.translate(0,0);x.rotate(lerp(Math.PI/2,0,open));
+  x.fillRect(-3,-14,6,28);x.restore();
+  // handle
+  x.strokeStyle='#9fb2cc';x.lineWidth=3;x.beginPath();x.moveTo(0,-16);x.lineTo(0,-30);x.stroke();
+  x.beginPath();x.arc(0,-33,4,0,7);x.fillStyle='#9fb2cc';x.fill();
+  x.restore();
+  x.fillStyle=COL.dim;x.font='700 11px ui-monospace,monospace';x.textAlign='center';
+  x.fillText('MV101 valve',cx,cy+40);
+  x.fillStyle=open>0.5?COL.green:COL.amber;x.font='700 11px ui-monospace,monospace';
+  x.fillText(open>0.5?'OPEN':'CLOSING',cx,cy+55);
+}
+
+function gauge(cx,cy,r,val,vmin,vmax,band,label,digital,spoofed,warn){
+  x.save();x.translate(cx,cy);
+  x.fillStyle='#0d1626';x.beginPath();x.arc(0,0,r,0,7);x.fill();
+  x.strokeStyle='#2b3d5c';x.lineWidth=4;x.stroke();
+  // safe band arc
+  const a0=Math.PI*0.75,a1=Math.PI*2.25;
+  const bandA0=a0+(band[0]-vmin)/(vmax-vmin)*(a1-a0), bandA1=a0+(band[1]-vmin)/(vmax-vmin)*(a1-a0);
+  x.strokeStyle='rgba(63,178,127,.5)';x.lineWidth=5;x.beginPath();x.arc(0,0,r-9,bandA0,bandA1);x.stroke();
+  // ticks
+  x.strokeStyle='#3a4e6e';x.lineWidth=2;
+  for(let i=0;i<=8;i++){const a=a0+(i/8)*(a1-a0);x.beginPath();x.moveTo(Math.cos(a)*(r-4),Math.sin(a)*(r-4));x.lineTo(Math.cos(a)*(r-12),Math.sin(a)*(r-12));x.stroke();}
+  // needle
+  const va=a0+clamp((val-vmin)/(vmax-vmin),0,1)*(a1-a0);
+  x.strokeStyle=spoofed?COL.amber:'#ff5a5a';x.lineWidth=3;x.beginPath();x.moveTo(0,0);x.lineTo(Math.cos(va)*(r-14),Math.sin(va)*(r-14));x.stroke();
+  x.fillStyle='#e8eef7';x.beginPath();x.arc(0,0,4,0,7);x.fill();
+  x.restore();
+  // "SPOOFED" stamp across the gauge face when the reading is being faked
+  if(spoofed){
+    x.save();x.translate(cx,cy);x.rotate(-0.32);
+    x.fillStyle='rgba(239,83,80,.16)';roundRect(-r-2,-11,2*r+4,22,5);x.fill();
+    x.fillStyle=COL.red;x.font='800 12px ui-monospace,monospace';x.textAlign='center';x.fillText('SPOOFED',0,4);
+    x.restore();
+  }
+  x.fillStyle=spoofed?COL.red:COL.dim;x.font='700 11px ui-monospace,monospace';x.textAlign='center';
+  x.fillText(spoofed?label+' (FAKE)':label,cx,cy+r+16);
+  if(digital!==undefined){x.fillStyle=spoofed?COL.amber:COL.ink;x.font='700 15px ui-monospace,monospace';x.fillText(digital,cx,cy+r+34);}
+  if(warn){x.fillStyle=COL.red;x.font='700 11px ui-monospace,monospace';x.fillText(warn,cx,cy+r+52);}
+}
+
+// chlorine dosing dripper
+function dripper(cx,cy,active){
+  x.fillStyle='#1c2b16';roundRect(cx-26,cy-46,52,44,7);x.fill();
+  x.strokeStyle='#5f7c3a';x.lineWidth=2;roundRect(cx-26,cy-46,52,44,7);x.stroke();
+  // chlorine liquid
+  x.fillStyle=COL.chlorine;roundRect(cx-22,cy-20,44,16,3);x.fill();
+  x.fillStyle=COL.dim;x.font='700 10px ui-monospace,monospace';x.textAlign='center';
+  x.fillText('Cl₂ dosing',cx,cy-52);
+  // drops
+  if(active){const ph=(clock*1.4)%1;const dy=cy-2+ph*46;
+    x.fillStyle=COL.chlorine;x.beginPath();x.arc(cx,dy,3,0,7);x.fill();}
+}
+
+// detector / SCADA panel (right side)
+function panel(){
+  const px=980,py=132,pw=262,ph=302;
+  x.save();
+  x.fillStyle='rgba(10,17,30,.92)';roundRect(px,py,pw,ph,14);x.fill();
+  x.strokeStyle=S.alarm?COL.red:'#22406a';x.lineWidth=S.alarm?2:1.4;roundRect(px,py,pw,ph,14);x.stroke();
+  x.textAlign='left';x.fillStyle=COL.dim;x.font='700 11px ui-monospace,monospace';
+  x.fillText('ICS GUARDIAN · MONITOR',px+16,py+24);
+  const bar=(yy,name,sc,col)=>{
+    x.fillStyle=COL.ink;x.font='700 12px ui-monospace,monospace';x.textAlign='left';x.fillText(name,px+16,yy);
+    x.fillStyle=sc>=1?COL.red:col;x.textAlign='right';x.fillText('×'+sc.toFixed(1),px+pw-16,yy);
+    x.fillStyle='#0b1424';roundRect(px+16,yy+8,pw-32,12,6);x.fill();
+    x.fillStyle=sc>=1?COL.red:col;roundRect(px+16,yy+8,Math.min(sc/2.5,1)*(pw-32),12,6);x.fill();
+    // threshold notch
+    x.fillStyle='rgba(255,255,255,.6)';x.fillRect(px+16+(1/2.5)*(pw-32),yy+5,1.5,18);
+  };
+  bar(py+58,'Process model',S.pScore,COL.green);
+  bar(py+108,'Network model',S.nScore,COL.blue);
+  // fused
+  x.fillStyle=COL.amber;x.font='700 13px ui-monospace,monospace';x.textAlign='left';x.fillText('FUSED (max)',px+16,py+168);
+  x.fillStyle=S.fused>=1?COL.red:COL.amber;x.textAlign='right';x.fillText('×'+S.fused.toFixed(1),px+pw-16,py+168);
+  x.fillStyle='#0b1424';roundRect(px+16,py+178,pw-32,16,8);x.fill();
+  x.fillStyle=S.fused>=1?COL.red:COL.amber;roundRect(px+16,py+178,Math.min(S.fused/2.5,1)*(pw-32),16,8);x.fill();
+  x.fillStyle='rgba(255,255,255,.6)';x.fillRect(px+16+(1/2.5)*(pw-32),py+175,1.5,22);
+  // status
+  x.textAlign='center';
+  if(S.alarm){x.fillStyle=COL.red;x.font='800 26px ui-monospace,monospace';x.fillText('● ALARM',px+pw/2,py+238);
+    x.fillStyle=COL.dim;x.font='600 11px ui-monospace,monospace';x.fillText('fired: '+S.fired,px+pw/2,py+260);}
+  else if(S.contained){x.fillStyle=COL.green;x.font='800 22px ui-monospace,monospace';x.fillText('✓ CONTAINED',px+pw/2,py+238);
+    x.fillStyle=COL.dim;x.font='600 11px ui-monospace,monospace';x.fillText('threat neutralized · nominal',px+pw/2,py+260);}
+  else{x.fillStyle=COL.green;x.font='800 26px ui-monospace,monospace';x.fillText('● NOMINAL',px+pw/2,py+238);
+    x.fillStyle=COL.dim;x.font='600 11px ui-monospace,monospace';x.fillText('process & network agree',px+pw/2,py+260);}
+  x.fillStyle=COL.dim;x.font='600 10px ui-monospace,monospace';
+  x.fillText(S.pkt.toFixed(0)+' pkt/s · '+S.conn+' conns',px+pw/2,py+284);
+  x.restore();
+}
+
+// attacker console + hack beam onto AIT201
+function attacker(){
+  if(S.attackerOn<=0)return;
+  const ax=70,ay=470,aw=210,ah=150, o=S.attackerOn;
+  x.save();x.globalAlpha=o;
+  x.fillStyle='rgba(20,6,8,.94)';roundRect(ax,ay,aw,ah,12);x.fill();
+  x.strokeStyle=COL.red;x.lineWidth=1.6;roundRect(ax,ay,aw,ah,12);x.stroke();
+  x.textAlign='left';x.fillStyle=COL.red;x.font='700 11px ui-monospace,monospace';
+  x.fillText('⚠ ADVERSARY',ax+14,ay+22);
+  x.fillStyle='#ff9b98';x.font='11px ui-monospace,monospace';
+  const lines=['> inject AIT201 = 0.80','> hold reported value','> P101 → OFF','> exfiltrate + flood'];
+  for(let i=0;i<lines.length;i++){const show=Math.min(1,(clock- (S.mode==='spoof'?52:52) -i*1.2));
+    if(show>0)x.fillText(lines[i],ax+14,ay+46+i*22);}
+  x.restore();
+  // beam to sensor (AIT201 at ~720,150)
+  if(S.hackBeam>0){x.save();x.globalAlpha=0.5*S.hackBeam;
+    x.strokeStyle=COL.red;x.lineWidth=2;x.setLineDash([6,8]);x.lineDashOffset=-clock*40;
+    x.beginPath();x.moveTo(ax+aw,ay+30);x.lineTo(712,196);x.stroke();x.setLineDash([]);
+    x.restore();}
+}
+
+// operator-vs-reality callout during spoof
+function spoofCallout(){
+  if(S.mode!=='spoof' && S.mode!=='flood')return;
+  const o=clamp((clock-53)/1,0,1);
+  x.save();x.globalAlpha=o;x.textAlign='center';
+  // operator sees (green) near gauge
+  x.fillStyle='rgba(10,20,14,.9)';roundRect(628,88,180,44,8);x.fill();
+  x.strokeStyle=COL.green;x.lineWidth=1.4;roundRect(628,88,180,44,8);x.stroke();
+  x.fillStyle=COL.dim;x.font='600 9.5px ui-monospace,monospace';x.fillText('OPERATOR SEES',718,104);
+  x.fillStyle=COL.green;x.font='800 18px ui-monospace,monospace';x.fillText(S.clReported.toFixed(2)+' mg/L  ✓',718,124);
+  // reality (red) near tank water
+  x.fillStyle='rgba(24,8,8,.92)';roundRect(628,560,180,50,8);x.fill();
+  x.strokeStyle=COL.red;x.lineWidth=1.4;roundRect(628,560,180,50,8);x.stroke();
+  x.fillStyle='#ff9b98';x.font='600 9.5px ui-monospace,monospace';x.fillText('TRUE CHLORINE',718,578);
+  x.fillStyle=COL.red;x.font='800 18px ui-monospace,monospace';x.fillText(S.clTrue.toFixed(2)+' mg/L  ⚠',718,598);
+  x.restore();
+}
+
+// response chain (bottom) during response
+function responseChain(){
+  if(S.mode!=='response' && S.mode!=='recovered')return;
+  const items=[['SOC Alert',0],['Triage · P1',1],['IR Playbook',2],['PLC Safe-State',3]];
+  const y=588, x0=300, bw=150, gap=26;
+  x.textAlign='center';
+  for(const [name,i] of items){
+    const bx=x0+i*(bw+gap), lit=S.respStage>i;
+    x.fillStyle=lit?'rgba(40,12,12,.9)':'rgba(12,18,30,.8)';roundRect(bx,y,bw,42,8);x.fill();
+    x.strokeStyle=lit?(i===3?COL.amber:COL.red):'#22304a';x.lineWidth=1.4;roundRect(bx,y,bw,42,8);x.stroke();
+    x.fillStyle=lit?(i===3?'#ffcf8f':'#ff9b98'):COL.dim;x.font='700 12px ui-monospace,monospace';
+    x.fillText(name,bx+bw/2,y+26);
+    if(i<3 && lit){x.strokeStyle=COL.red;x.lineWidth=2;x.beginPath();x.moveTo(bx+bw,y+21);x.lineTo(bx+bw+gap,y+21);x.stroke();}
+  }
+}
+
+// title / caption
+function caption(txt){
+  if(!txt)return;
+  x.save();
+  x.textAlign='center';
+  x.fillStyle='rgba(6,11,19,.82)';
+  const w=Math.min(1120, x.measureText?900:900);
+  roundRect(W/2-560,652,1120,52,10);x.fillStyle='rgba(6,11,19,.8)';x.fill();
+  x.fillStyle='#eaf1fb';x.font='600 18px -apple-system,Segoe UI,Roboto,sans-serif';
+  // simple wrap not needed; keep captions short
+  x.fillText(txt,W/2,684);
+  x.restore();
+}
+
+// scene title top-left already via brand; header
+function header(sceneLabel){
+  x.textAlign='left';
+  x.fillStyle=COL.ink;x.font='800 18px -apple-system,Segoe UI,sans-serif';
+  x.fillText('Water-Chlorination ICS  |  Live Simulation',28,34);
+  x.fillStyle=COL.dim;x.font='12px -apple-system,Segoe UI,sans-serif';
+  x.fillText('ICS Guardian · process × network fusion defense',28,52);
+  if(sceneLabel){x.textAlign='right';x.fillStyle=COL.blue;x.font='700 12px ui-monospace,monospace';
+    x.fillText(sceneLabel,952,34);}
+}
+
+// ---------- captions timeline (subtitle-style) ----------
+// NOTE: this list is the single source of truth. The voiceover script uses the
+// exact same lines at the exact same times, so speech matches the on-screen text
+// word for word, and every line has enough time to be spoken at a natural pace.
+const CAPS=[
+  [7,'This is a water chlorination plant. Clean water in, safe water out.'],
+  [13,'The valve lets raw water into the tank. A sensor watches the level.'],
+  [20,'The pump adds chlorine to disinfect the water. Blue means it is safe.'],
+  [27,'The chlorine reading must stay inside the green safe band.'],
+  [33,'A PLC, a small industrial computer, runs the plant automatically.'],
+  [40,'Our system watches the process and the network at the same time.'],
+  [47,'While the plant is healthy, both monitors stay green.'],
+  [53,'An attacker spoofs the chlorine sensor, freezing it at a fake safe value.'],
+  [60,'The operator still sees safe, but the real chlorine is collapsing.'],
+  [66,'The pump is forced off, and the process model catches it.'],
+  [72,'The attacker also floods the network, and the network model reacts.'],
+  [78,'Alone, each model is blind. Together they catch both attacks.'],
+  [84,'The alarm fires. The response is automatic, but human gated.'],
+  [90,'An engineer moves the plant to a safe state, and the water recovers.'],
+  [96,'The threat is contained. The water is protected.'],
+  [100,'Detect. Fuse. Respond. A shield for critical water systems.'],
+];
+function capAt(t){let c='';for(const [tt,txt] of CAPS)if(t>=tt)c=txt;return c;}
+
+// ---------- master timeline ----------
+const TOTAL=108;
+let clock=0, startT=null;
+
+let lastBucket=-1;
+function setSim(t){
+  S.pumpAng += (S.pumpOn?0.25:0.0);
+  const jit=(a)=>(Math.random()-0.5)*2*a;
+
+  // ---- deterministic phase & targets (no per-frame randomness here) ----
+  let mode, valveT, pumpOn, clT, pktBase, connBase, pBase, nBase, alarm, fired='',
+      attackerT=0, beamT=0, resp=0, contained=false;
+  if(t<52){
+    mode='normal'; valveT=1;pumpOn=1;clT=0.8;pktBase=180;connBase=6;pBase=0.3;nBase=0.3;alarm=false;
+  } else if(t<68){
+    mode='spoof'; valveT=1;pumpOn=0;clT=0.30;pktBase=180;connBase=6;attackerT=1;beamT=1;
+    pBase=t>57?9.6:0.4; nBase=0.3; alarm=t>57; fired=t>57?'process branch':'';
+  } else if(t<80){
+    mode='flood'; valveT=1;pumpOn=0;clT=0.28;pktBase=910;connBase=42;attackerT=1;beamT=1;
+    pBase=6;nBase=20;alarm=true;fired='process & network';
+  } else if(t<89){
+    mode='response';
+    resp = t<82?1 : t<84?2 : t<86?3 : 4;
+    const safeState = t>84;                  // engineer intervenes -> safe state
+    // chlorine ramps back up over ~5s so it is fully in the safe band exactly at t=89
+    const clRamp = clamp((t-84)/5,0,1);
+    clT = lerp(0.28, 0.8, clRamp);
+    valveT = safeState?0:1;                  // valve driven to safe (closed) then reopened on recovery
+    pumpOn = safeState?1:0;                  // dosing restored
+    pktBase = t<82?910:200; connBase = t<82?42:6;
+    pBase = lerp(6,0.9,clRamp); nBase = t<82?20:0.4;
+    alarm = true;                            // stays ALARM through the whole response window
+    fired='process & network';
+  } else {
+    // t>=89: RESOLVE moment, alarm clears, water blue, audio chime, all in sync
+    mode='recovered'; valveT=1;pumpOn=1;clT=0.8;pktBase=180;connBase=6;pBase=0.3;nBase=0.3;alarm=false;
+    contained=(t<99);                        // "threat contained" confirmation, then plain nominal
+    resp=4;
+  }
+  S.mode=mode; S.alarm=alarm; S.fired=fired; S.respStage=resp; S.contained=contained;
+
+  // ---- smooth physics EVERY frame (no flicker) ----
+  S.pumpOn=pumpOn; S.flow=1;
+  S.valve=lerp(S.valve,valveT,0.06);
+  S.clTrue=lerp(S.clTrue,clT,0.08);
+  S.level=clamp(S.level+(0.62-S.level)*0.03,0,1);
+  S.attackerOn=lerp(S.attackerOn,attackerT,0.08);
+  S.hackBeam=lerp(S.hackBeam,beamT,0.08);
+
+  // ---- noisy readouts refresh only ~2x/sec so the numbers are READABLE ----
+  const bucket=Math.floor(t/0.5);
+  if(bucket!==lastBucket){
+    lastBucket=bucket;
+    S.pkt=Math.max(0,pktBase+jit(pktBase>500?40:8));
+    S.conn=connBase;
+    S.pScore=clamp(pBase+jit(pBase*0.10+0.05),0.1,24);
+    S.nScore=clamp(nBase+jit(nBase*0.10+0.05),0.1,24);
+    S.clReported=(mode==='spoof'||mode==='flood')?0.80+jit(0.004):S.clTrue+jit(0.006);
+    S.fused=Math.max(S.pScore,S.nScore);
+  }
+}
+
+function draw(){
+  // background
+  const bg=x.createLinearGradient(0,0,0,H);bg.addColorStop(0,COL.bg0);bg.addColorStop(1,COL.bg1);
+  x.fillStyle=bg;x.fillRect(0,0,W,H);
+  // subtle grid floor
+  x.strokeStyle='rgba(60,90,130,.08)';x.lineWidth=1;
+  for(let gy=520;gy<700;gy+=22){x.beginPath();x.moveTo(0,gy);x.lineTo(W,gy-0);x.stroke();}
+
+  header(({normal:'NORMAL OPERATION',spoof:'⚠ SENSOR SPOOF',flood:'⚠ NETWORK FLOOD',response:'RESPONSE',recovered:'RECOVERED'})[S.mode]);
+
+  // pipes: inlet -> valve -> raw tank ; raw tank -> pump -> treated tank ; treated -> outlet
+  pipe([[0,392],[150,392]],14,S.valve*S.flow); // inlet to valve
+  pipe([[150,392],[250,392],[250,300]],14,S.valve*S.flow); // valve to raw tank base
+  pipe([[390,470],[470,470]],14,S.pumpOn?S.flow:0); // raw tank -> pump
+  pipe([[470,470],[560,470],[560,340]],14,S.pumpOn?S.flow:0,S.mode!=='normal'&&S.mode!=='recovered'? 'rgba(200,120,120,.7)':null); // pump -> treated
+  pipe([[790,470],[1280,470]],14,S.flow, S.clTrue<0.5?'rgba(180,175,90,.7)':'rgba(120,200,230,.85)'); // outlet
+
+  // valve
+  valve(150,392,S.valve);
+  // raw tank
+  tank(320,220,150,230,S.level, COL.waterSafe[0],COL.waterSafe[1],'RAW-WATER TANK','LIT101  '+(430+S.level*140).toFixed(0)+' mm');
+  // chlorine dripper + pump
+  dripper(470,360,S.pumpOn && (S.mode==='normal'||S.mode==='recovered'||S.mode==='response'&&S.clTrue>0.5));
+  pump(470,470,26,S.pumpOn);
+  // treated tank, water color reflects TRUE chlorine (safe teal vs unsafe khaki)
+  const safeU=clamp((S.clTrue-0.3)/0.5,0,1);
+  const wTop=mix(COL.waterUnsafe[0],COL.waterSafe[0],safeU);
+  const wBot=mix(COL.waterUnsafe[1],COL.waterSafe[1],safeU);
+  tank(720,220,150,230,0.6, wTop,wBot,'CONTACT TANK (chlorinated)','');
+  // gauges
+  gauge(320,150,34,430+S.level*140,430,600,[460,560],'LEVEL',(430+S.level*140).toFixed(0),false);
+  const clSpoofed=(S.mode==='spoof'||S.mode==='flood');
+  gauge(720,150,34, clSpoofed? S.clReported: S.clTrue ,0,1.2,[0.5,1.0],'CHLORINE',
+        (clSpoofed?S.clReported:S.clTrue).toFixed(2), clSpoofed,
+        clSpoofed? 'true '+S.clTrue.toFixed(2)+' mg/L' : '');
+  // outlet label
+  x.fillStyle=COL.dim;x.font='700 11px ui-monospace,monospace';x.textAlign='left';
+  x.fillText('→ to city water supply', 1090, 456);
+
+  panel();
+  attacker();
+  spoofCallout();
+  responseChain();
+  caption(capAt(clock));
+
+  // progress
+  x.fillStyle=COL.blue;x.fillRect(0,0,W*Math.min(clock/TOTAL,1),3);
+}
+
+// intro / outro overlays drawn on canvas
+function overlay(){
+  if(clock<6){const o=clamp((5.4-clock)/1,0,1);
+    x.save();x.globalAlpha=o;
+    const g=x.createRadialGradient(W/2,300,60,W/2,300,700);g.addColorStop(0,'#16273f');g.addColorStop(1,'#05090f');
+    x.fillStyle=g;x.fillRect(0,0,W,H);
+    x.textAlign='center';x.fillStyle='#eaf1fb';x.font='800 46px -apple-system,Segoe UI,sans-serif';
+    x.fillText('ICS Guardian',W/2,300);
+    x.fillStyle=COL.dim;x.font='20px -apple-system,Segoe UI,sans-serif';
+    x.fillText('Protecting a water-chlorination plant from cyber attacks',W/2,344);
+    x.fillStyle=COL.blue;x.font='700 13px ui-monospace,monospace';
+    x.fillText('FULL SYSTEM SIMULATION',W/2,392);
+    x.restore();}
+  if(clock>102){const o=clamp((clock-102)/1.4,0,1);
+    x.save();x.globalAlpha=o;
+    const g=x.createRadialGradient(W/2,320,60,W/2,320,700);g.addColorStop(0,'#122031');g.addColorStop(1,'#05090f');
+    x.fillStyle=g;x.fillRect(0,0,W,H);
+    x.textAlign='center';x.fillStyle='#eaf1fb';x.font='800 40px -apple-system,Segoe UI,sans-serif';
+    x.fillText('Detect. Fuse. Respond.',W/2,300);
+    x.fillStyle=COL.dim;x.font='18px -apple-system,Segoe UI,sans-serif';
+    x.fillText('Two blind spots, one detector with none. Human-gated at the PLC.',W/2,342);
+    x.fillStyle=COL.green;x.font='700 13px ui-monospace,monospace';
+    x.fillText('CLOUD-NATIVE DEVSECOPS · ICS SECURITY',W/2,388);
+    x.restore();}
+}
+
+function frame(ts){
+  if(startT===null)startT=ts; clock=(ts-startT)/1000;
+  setSim(clock);
+  draw();
+  overlay();
+  if(clock<TOTAL) requestAnimationFrame(frame);
+}
+
+// Deterministic render mode: with ?render=1, DON'T auto-run. An external driver
+// (Playwright) calls window.__step(t) once per output frame at a fixed timestep,
+// so the video file-time equals the animation clock exactly (no drift).
+if(location.search.indexOf('render')>=0){
+  window.__step=function(t){ clock=t; setSim(t); draw(); overlay(); };
+}else{
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

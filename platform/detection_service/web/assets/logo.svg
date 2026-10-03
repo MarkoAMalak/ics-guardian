@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="ICS Guardian logo">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d4ed8"/><stop offset="1" stop-color="#0e6fbf"/>
+    </linearGradient>
+    <linearGradient id="dg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fd3ff"/><stop offset="1" stop-color="#4a9fe0"/>
+    </linearGradient>
+  </defs>
+  <!-- shield -->
+  <path d="M24 3 L41 9 V23 C41 34 33 41 24 45 C15 41 7 34 7 23 V9 Z"
+        fill="url(#lg)" stroke="#2b62c9" stroke-width="1"/>
+  <path d="M24 3 L41 9 V23 C41 34 33 41 24 45 C15 41 7 34 7 23 V9 Z"
+        fill="none" stroke="#8fd3ff" stroke-width="0.6" opacity="0.5"/>
+  <!-- water drop -->
+  <path d="M24 14 C24 14 31 22 31 27.5 A7 7 0 0 1 17 27.5 C17 22 24 14 24 14 Z"
+        fill="url(#dg)"/>
+  <!-- highlight + pulse check -->
+  <circle cx="21.5" cy="26.5" r="1.7" fill="#ffffff" opacity="0.8"/>
+  <path d="M20 30.5 L23 33.2 L29 26.8" fill="none" stroke="#0b2a52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

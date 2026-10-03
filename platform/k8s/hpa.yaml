@@ -1,0 +1,21 @@
+# Horizontal Pod Autoscaler — scales the detector 2->6 replicas on CPU load.
+# Demonstrates the "cloud-native" elasticity claim: the serving tier scales
+# with ingestion rate without manual intervention.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ics-detector
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ics-detector
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

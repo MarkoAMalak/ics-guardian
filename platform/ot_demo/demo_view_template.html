@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Live OT-Loop Demo, ICS Fusion Detection</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131d30; --panel2:#0f1728; --line:#22304a;
+    --ink:#e8eef7; --dim:#8ea3c0; --faint:#5f7392;
+    --proc:#3fb27f; --net:#4a9fe0; --fused:#f5c451; --alarm:#ef5350;
+    --ok:#3fb27f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#16233c 0%,var(--bg) 55%);
+    color:var(--ink);font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:18px}
+  h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:2px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .status{display:flex;gap:10px;align-items:center}
+  .badge{padding:6px 14px;border-radius:999px;font-weight:700;font-size:13px;border:1px solid var(--line)}
+  .badge.nominal{background:rgba(63,178,127,.13);color:var(--ok);border-color:rgba(63,178,127,.4)}
+  .badge.alarm{background:rgba(239,83,80,.16);color:#ff8a87;border-color:rgba(239,83,80,.5);
+    animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,83,80,.5)}50%{box-shadow:0 0 0 6px rgba(239,83,80,0)}}
+  .phase{padding:6px 12px;border-radius:8px;font-weight:600;font-size:12.5px;border:1px solid var(--line);background:var(--panel2)}
+  .grid{display:grid;grid-template-columns:1.05fr 1.35fr;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);font-weight:700}
+  /* plant schematic */
+  .plant{position:relative;height:270px}
+  svg{width:100%;height:100%}
+  .tag{font:600 12px ui-monospace,Menlo,Consolas,monospace;fill:var(--ink)}
+  .tagv{font:700 15px ui-monospace,Menlo,Consolas,monospace;fill:#fff}
+  .tagl{font:11px -apple-system,Segoe UI,sans-serif;fill:var(--dim)}
+  /* meters */
+  .meter{margin-bottom:16px}
+  .meter .lab{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .meter .name{font-weight:700;font-size:13.5px}
+  .meter .val{font:700 13px ui-monospace,monospace;color:var(--dim)}
+  .track{position:relative;height:18px;background:var(--panel2);border-radius:9px;overflow:hidden;border:1px solid var(--line)}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:9px;transition:width .12s linear,background .2s}
+  .thr{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.75}
+  .thr::after{content:'thr';position:absolute;top:-14px;left:-7px;font-size:9px;color:var(--dim)}
+  .meter.big .track{height:26px}
+  .meter.big .name{font-size:15px}
+  /* deception callout */
+  .decep{margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    display:flex;gap:18px;align-items:center;opacity:.5;transition:.25s}
+  .decep.on{opacity:1;border-color:rgba(239,83,80,.5);background:rgba(239,83,80,.08)}
+  .decep .b{font:700 18px ui-monospace,monospace}
+  .decep .lbl{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .gap{color:#ff8a87;font-weight:700}
+  /* chart */
+  .chartwrap{margin-top:4px}
+  canvas{width:100%;height:150px;display:block}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .kpi .n{font:700 20px ui-monospace,monospace}
+  .kpi .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  /* controls */
+  .ctrl{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 15px;font-size:13px;font-weight:600;cursor:pointer}
+  button:hover{border-color:#3a557f}
+  button.primary{background:#1d4ed8;border-color:#1d4ed8}
+  .legend{display:flex;gap:16px;margin-left:auto;font-size:11.5px;color:var(--dim);align-items:center;flex-wrap:wrap}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .foot{color:var(--dim);font-size:11.5px;margin-top:14px;text-align:center}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Live OT-Loop Demo, Process × Network Fusion Detection</h1>
+      <div class="sub">Simulated water-chlorination ICS · unsupervised detector · SWaT-style attacks</div>
+    </div>
+    <div class="status">
+      <span class="phase" id="phase">warm-up</span>
+      <span class="badge nominal" id="status">● NOMINAL</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: plant schematic -->
+    <div class="card">
+      <h2>Chlorination process (live)</h2>
+      <div class="plant">
+        <svg viewBox="0 0 380 270" preserveAspectRatio="xMidYMid meet">
+          <!-- raw water tank -->
+          <rect x="30" y="60" width="90" height="150" rx="6" fill="#0f1728" stroke="#2b3d5c"/>
+          <rect id="water" x="32" y="120" width="86" height="88" fill="url(#wg)"/>
+          <defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#2b6fb0"/><stop offset="1" stop-color="#1b4e82"/>
+            </linearGradient>
+          </defs>
+          <text class="tagl" x="75" y="230" text-anchor="middle">Raw-water tank</text>
+          <text class="tag" x="75" y="52" text-anchor="middle">LIT101</text>
+          <text class="tagv" x="75" y="150" text-anchor="middle" id="v_lit">500</text>
+
+          <!-- pipe to analyser -->
+          <line x1="120" y1="135" x2="200" y2="135" stroke="#3a4e6e" stroke-width="6"/>
+          <!-- dosing pump -->
+          <circle id="pump" cx="160" cy="135" r="16" fill="#12324f" stroke="#3fb27f" stroke-width="2"/>
+          <text class="tagl" x="160" y="170" text-anchor="middle">P101 pump</text>
+          <text class="tag" x="160" y="108" text-anchor="middle" id="v_pump">ON</text>
+
+          <!-- chlorine analyser -->
+          <rect x="205" y="95" width="90" height="80" rx="8" fill="#0f1728" stroke="#2b3d5c"/>
+          <text class="tag" x="250" y="88" text-anchor="middle">AIT201</text>
+          <text class="tagl" x="250" y="112" text-anchor="middle">chlorine mg/L</text>
+          <text class="tagv" x="250" y="145" text-anchor="middle" id="v_ait" style="font-size:22px">0.80</text>
+          <text class="tagl" x="250" y="166" text-anchor="middle" id="v_ait_state">reported</text>
+
+          <!-- network segment -->
+          <rect x="30" y="238" width="265" height="26" rx="6" fill="#0f1728" stroke="#2b3d5c"/>
+          <circle cx="46" cy="251" r="4" id="net_led" fill="#4a9fe0"/>
+          <text class="tagl" x="60" y="255">OT network</text>
+          <text class="tag" x="180" y="255" id="v_net">180 pkt/s · 6 conn</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- RIGHT: detectors -->
+    <div class="card">
+      <h2>Detector, two branches, one fused decision</h2>
+      <div class="meter">
+        <div class="lab"><span class="name" style="color:var(--proc)">Process branch</span><span class="val" id="pv">×0.0</span></div>
+        <div class="track"><div class="fill" id="pf" style="background:var(--proc)"></div><div class="thr" id="pt"></div></div>
+      </div>
+      <div class="meter">
+        <div class="lab"><span class="name" style="color:var(--net)">Network branch</span><span class="val" id="nv">×0.0</span></div>
+        <div class="track"><div class="fill" id="nf" style="background:var(--net)"></div><div class="thr" id="nt"></div></div>
+      </div>
+      <div class="meter big">
+        <div class="lab"><span class="name" style="color:var(--fused)">FUSED (max)</span><span class="val" id="fv">×0.0</span></div>
+        <div class="track"><div class="fill" id="ff" style="background:var(--fused)"></div><div class="thr" id="ft"></div></div>
+      </div>
+
+      <div class="decep" id="decep">
+        <div>
+          <div class="lbl">Operator sees</div>
+          <div class="b" id="d_rep">0.80</div>
+        </div>
+        <div style="font-size:20px;color:var(--dim)">→</div>
+        <div>
+          <div class="lbl">True chlorine</div>
+          <div class="b gap" id="d_true">0.80</div>
+        </div>
+        <div style="margin-left:auto;max-width:220px;font-size:11.5px;color:var(--dim)" id="d_msg">
+          No deception, reported value matches reality.
+        </div>
+      </div>
+
+      <div class="chartwrap">
+        <canvas id="chart" width="640" height="150"></canvas>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="n" id="k_t">0s</div><div class="l">Elapsed</div></div>
+        <div class="kpi"><div class="n" id="k_al">0</div><div class="l">Alarms</div></div>
+        <div class="kpi"><div class="n" id="k_src">-</div><div class="l">Fired branch</div></div>
+        <div class="kpi"><div class="n" id="k_sev" style="color:var(--fused)">×0.0</div><div class="l">Severity</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button class="primary" id="play">▶ Play</button>
+    <button id="reset">↻ Reset</button>
+    <button id="speed">Speed: 1×</button>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--proc)"></span>process</span>
+      <span><span class="dot" style="background:var(--net)"></span>network</span>
+      <span><span class="dot" style="background:var(--fused)"></span>fused</span>
+      <span><span class="dot" style="background:rgba(63,178,127,.35)"></span>sensor spoof</span>
+      <span><span class="dot" style="background:rgba(74,159,224,.35)"></span>network disruption</span>
+    </div>
+  </div>
+
+  <div class="foot">Not a recording, the plant is simulated and scored per scan from the same detector used in the notebook.
+  Spoof → process branch · Disruption → network branch · <b>Fused catches both</b>.</div>
+</div>
+
+<script>
+const DATA = /*DATA*/;
+const R = DATA.records, PT = DATA.proc_thr, NT = DATA.net_thr;
+const n = R.length;
+const $ = id => document.getElementById(id);
+
+// meter fill helper: ratio ×1.0 = at threshold; scale so ×2.5 fills the bar
+function setMeter(fillEl, valEl, thrEl, ratio, color){
+  const w = Math.min(ratio/2.5, 1)*100;
+  fillEl.style.width = w.toFixed(1)+'%';
+  fillEl.style.background = ratio>=1 ? 'var(--alarm)' : color;
+  valEl.textContent = '×'+ratio.toFixed(1);
+  thrEl.style.left = (1/2.5*100)+'%';
+}
+
+const phaseName = {none:'normal operation', spoof:'⚠ SENSOR SPOOF (T0856)', disruption:'⚠ NETWORK DISRUPTION (T0814)'};
+const bandColor = a => a==='spoof' ? 'rgba(63,178,127,.10)' : a==='disruption' ? 'rgba(74,159,224,.12)' : 'transparent';
+
+// chart
+const cv = $('chart'), cx = cv.getContext('2d');
+function resizeCanvas(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixelRatio; cv.height=r.height*devicePixelRatio; cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+addEventListener('resize',()=>{resizeCanvas();draw();});
+
+let idx=0, play=false, posf=0, last=0, alarms=0;
+const durs=[120,60,30,15], labs=['0.5×','1×','2×','4×']; let si=1;
+
+function draw(){
+  const W=cv.getBoundingClientRect().width, H=150, pad=6;
+  cx.clearRect(0,0,W,H);
+  // attack bands
+  for(let i=0;i<n;i++){
+    const a=R[i].attack; if(a==='none')continue;
+    const x=pad+(i/(n-1))*(W-2*pad), x2=pad+((i+1)/(n-1))*(W-2*pad);
+    cx.fillStyle = a==='spoof' ? 'rgba(63,178,127,.13)':'rgba(74,159,224,.15)';
+    cx.fillRect(x,0,x2-x+1,H);
+  }
+  // threshold line (fused ratio = 1)
+  const yFor = v => H-pad-(Math.min(v,3)/3)*(H-2*pad);
+  cx.strokeStyle='rgba(255,255,255,.35)'; cx.setLineDash([4,4]); cx.lineWidth=1;
+  cx.beginPath(); cx.moveTo(pad,yFor(1)); cx.lineTo(W-pad,yFor(1)); cx.stroke(); cx.setLineDash([]);
+  cx.fillStyle='rgba(255,255,255,.4)'; cx.font='10px monospace'; cx.fillText('threshold',W-64,yFor(1)-4);
+  // fused score line up to idx
+  cx.strokeStyle='#f5c451'; cx.lineWidth=2; cx.beginPath();
+  for(let i=0;i<=idx;i++){
+    const x=pad+(i/(n-1))*(W-2*pad), y=yFor(R[i].fused);
+    i?cx.lineTo(x,y):cx.moveTo(x,y);
+  }
+  cx.stroke();
+  // playhead
+  const px=pad+(idx/(n-1))*(W-2*pad);
+  cx.strokeStyle='rgba(255,255,255,.5)'; cx.lineWidth=1; cx.beginPath(); cx.moveTo(px,0); cx.lineTo(px,H); cx.stroke();
+}
+
+function upd(){
+  const r=R[idx];
+  // plant
+  $('v_lit').textContent=r.LIT101.toFixed(0);
+  const lvlH=Math.max(6,Math.min(146,(r.LIT101-430)/140*146));
+  $('water').setAttribute('y', 208-lvlH); $('water').setAttribute('height', lvlH);
+  $('v_ait').textContent=r.AIT201.toFixed(2);
+  $('v_pump').textContent=r.P101? 'ON':'OFF';
+  $('pump').setAttribute('stroke', r.P101? 'var(--proc)':'var(--alarm)');
+  $('v_net').textContent=r.PKT_RATE.toFixed(0)+' pkt/s · '+r.N_CONN+' conn';
+  $('net_led').setAttribute('fill', r.PKT_RATE>500? '#ef5350':'#4a9fe0');
+  // deception
+  const spoof = r.attack==='spoof';
+  $('decep').className = 'decep'+(spoof?' on':'');
+  $('d_rep').textContent=r.AIT201.toFixed(2);
+  $('d_true').textContent=r.true_cl.toFixed(2);
+  $('v_ait_state').textContent = spoof? 'reported (SPOOFED)':'reported';
+  $('d_msg').textContent = spoof
+    ? 'Analyser tag is spoofed, operator sees safe chlorine while true dosing has collapsed. Process branch still catches it.'
+    : 'No deception, reported value matches reality.';
+  // meters
+  setMeter($('pf'),$('pv'),$('pt'),r.zp,'var(--proc)');
+  setMeter($('nf'),$('nv'),$('nt'),r.zn,'var(--net)');
+  setMeter($('ff'),$('fv'),$('ft'),r.fused,'var(--fused)');
+  // status + phase
+  $('phase').textContent=phaseName[r.attack];
+  const al=r.fa===1;
+  const st=$('status'); st.className='badge '+(al?'alarm':'nominal');
+  st.textContent = al? '● ALARM':'● NOMINAL';
+  // kpis
+  $('k_t').textContent=r.t+'s';
+  $('k_sev').textContent='×'+r.fused.toFixed(1);
+  $('k_src').textContent = al ? (r.pa&&r.na?'both':r.pa?'process':'network') : '-';
+  draw();
+}
+
+function recount(){ alarms=0; for(let i=0;i<=idx;i++) alarms+=R[i].fa; $('k_al').textContent=alarms; }
+
+function tick(ts){
+  if(!play)return;
+  if(!last)last=ts; const dt=(ts-last)/1000; last=ts;
+  posf += dt*(n-1)/durs[si];
+  if(posf>=n-1){ posf=n-1; idx=n-1; play=false; last=0; $('play').textContent='▶ Play'; recount(); upd(); return; }
+  idx=Math.round(posf); recount(); upd(); requestAnimationFrame(tick);
+}
+
+$('play').onclick=()=>{ if(idx>=n-1){idx=0;posf=0;} play=!play; last=0; $('play').textContent=play?'❚❚ Pause':'▶ Play'; if(play)requestAnimationFrame(tick); };
+$('reset').onclick=()=>{ idx=0;posf=0;last=0;play=false;alarms=0;$('k_al').textContent='0';$('play').textContent='▶ Play';upd(); };
+$('speed').onclick=e=>{ si=(si+1)%durs.length; e.target.textContent='Speed: '+labs[si]; };
+
+resizeCanvas(); upd();
+</script>
+</body>
+</html>
