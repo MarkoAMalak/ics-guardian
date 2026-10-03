@@ -1,0 +1,4 @@
+Model,ROC_AUC,PR_AUC,F1,Recall_exfiltration,Recall_disruption
+Process-only,0.659,0.386,0.278,0.143,0.219
+Network-only,0.667,0.315,0.269,0.313,0.036
+Fusion,0.776,0.47,0.399,0.391,0.248
