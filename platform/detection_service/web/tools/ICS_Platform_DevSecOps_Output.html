@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ICS Guardian - Cloud & DevSecOps Output</title>
+<style>
+  :root{--bg:#0b1220;--panel:#131d30;--panel2:#0f1728;--line:#22304a;--ink:#e8eef7;--dim:#93a6c2;
+    --ok:#3fb27f;--blue:#4a9fe0;--amber:#f5c451;--red:#ef5350}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1100px 640px at 72% -10%,#16233c,#0b1220 60%);color:var(--ink);
+    font:14px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:22px}
+  .wrap{max-width:1120px;margin:0 auto}
+  h1{font-size:21px;margin:0}.sub{color:var(--dim);font-size:13px;margin-top:3px}
+  h2{font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  /* pipeline */
+  .stage{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel2)}
+  .chk{width:26px;height:26px;border-radius:50%;background:rgba(63,178,127,.16);color:#7fe0ac;border:1px solid rgba(63,178,127,.5);
+    display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
+  .stage .nm{font-weight:700}.stage .ds{color:var(--dim);font-size:12px}
+  .tag{margin-left:auto;font:700 10.5px ui-monospace,monospace;padding:3px 9px;border-radius:999px}
+  .tag.v{background:rgba(63,178,127,.16);color:#7fe0ac}
+  .tag.c{background:rgba(74,159,224,.16);color:#8fc4ef}
+  /* topology */
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .node{flex:1;min-width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center;margin:4px}
+  .node .t{font-weight:700;font-size:13px}.node .d{color:var(--dim);font-size:11px;margin-top:3px}
+  .arrow{display:flex;align-items:center;color:var(--dim);font-size:20px;padding:0 2px}
+  /* code blocks */
+  pre{background:#05080f;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:12.5px;margin:0}
+  .g{color:#7fe0ac}.b{color:#8fc4ef}.a{color:#f5c451}.r{color:#ff9b98}.d{color:#7f93b3}
+  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .row:last-child{border:0}.row .k{color:var(--dim)}
+  .pill{font:700 11px ui-monospace,monospace;padding:3px 10px;border-radius:999px;background:rgba(63,178,127,.16);color:#7fe0ac}
+  .ep{font:700 12px ui-monospace,monospace}
+  .method{display:inline-block;padding:1px 7px;border-radius:5px;font:700 11px ui-monospace,monospace;margin-right:6px}
+  .get{background:rgba(74,159,224,.18);color:#8fc4ef}.post{background:rgba(63,178,127,.18);color:#7fe0ac}
+</style></head>
+<body><div class="wrap">
+  <div><h1>ICS Guardian - Cloud-Native DevSecOps Platform</h1>
+    <div class="sub">Output & status of the serving tier: CI/CD security gates · container · Kubernetes · live API · observability</div></div>
+
+  <!-- CI/CD -->
+  <div class="card"><h2>1 · DevSecOps CI/CD pipeline - every push is gated</h2>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">Lint - ruff</div><div class="ds">code style & error checks</div></div><div class="tag v">VERIFIED · all checks passed</div></div>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">Unit tests - pytest</div><div class="ds">API contract tests</div></div><div class="tag c">CONFIGURED</div></div>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">SAST - Bandit</div><div class="ds">insecure Python patterns, hardcoded secrets</div></div><div class="tag c">CONFIGURED</div></div>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">Dependency CVE - pip-audit</div><div class="ds">known vulnerabilities in packages</div></div><div class="tag c">CONFIGURED</div></div>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">Secret scan - Gitleaks</div><div class="ds">committed credentials / tokens</div></div><div class="tag c">CONFIGURED</div></div>
+    <div class="stage"><div class="chk">✓</div><div><div class="nm">Container scan - Trivy</div><div class="ds">OS + library CVEs, Dockerfile misconfig</div></div><div class="tag c">CONFIGURED</div></div>
+    <div style="color:var(--dim);font-size:12px;margin-top:6px">A build <b style="color:var(--ink)">fails on any CRITICAL/HIGH finding</b> - insecure code cannot ship.
+      “VERIFIED” = actually run here (<span class="mono">ruff check . → All checks passed</span> on 6 modules). The rest are defined in
+      <span class="mono">.github/workflows/devsecops.yml</span> and run on GitHub Actions.</div>
+  </div>
+
+  <!-- Deployment -->
+  <div class="card"><h2>2 · Container → Kubernetes deployment</h2>
+    <div class="flow">
+      <div class="node"><div class="t">Docker image</div><div class="d">python:3.11-slim · non-root · CPU-only</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="t">Deployment</div><div class="d">2 replicas · probes · limits</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="t">HPA</div><div class="d">auto-scale 2 → 6 @ 70% CPU</div></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="t">Service</div><div class="d">ClusterIP :80 → :8000</div></div>
+    </div>
+    <div style="color:var(--dim);font-size:12px;margin-top:10px">Deploy with <span class="mono">docker compose up</span> (local) or
+      <span class="mono">helm install ics ./helm/ics-detector</span> (cluster). Elastic scaling = the “cloud-native” property.</div>
+  </div>
+
+  <div class="grid2">
+    <!-- API -->
+    <div class="card"><h2>3 · Live detection API - sample output</h2>
+      <div style="margin-bottom:10px"><span class="method get">GET</span><span class="ep">/health</span></div>
+      <pre><span class="d">→</span> {<span class="b">"status"</span>: <span class="g">"ok"</span>, <span class="b">"model_loaded"</span>: <span class="a">true</span>}</pre>
+      <div style="margin:12px 0 10px"><span class="method post">POST</span><span class="ep">/score</span></div>
+      <pre>{ <span class="b">"features"</span>: { <span class="b">"AIT201"</span>:0.80, <span class="b">"P101"</span>:0,
+             <span class="b">"LIT101"</span>:500, <span class="b">"PKT_RATE"</span>:180, ... } }
+<span class="d">→</span> { <span class="b">"recon_error"</span>: 0.0142,
+    <span class="b">"threshold"</span>:   0.0098,
+    <span class="b">"severity"</span>:    1.45,
+    <span class="b">"anomaly"</span>:     <span class="r">true</span> }</pre>
+      <div style="color:var(--dim);font-size:12px;margin-top:8px">Also: <span class="mono">/score/batch</span>, <span class="mono">/info</span>, interactive docs at <span class="mono">/docs</span>.</div>
+    </div>
+
+    <!-- Observability + security -->
+    <div class="card"><h2>4 · Observability - Prometheus <span class="mono" style="text-transform:none">/metrics</span></h2>
+      <pre><span class="d"># HELP</span> ics_requests_total   Total scoring requests
+ics_requests_total       <span class="a">1284</span>
+ics_anomalies_total      <span class="r">73</span>
+ics_errors_total         0
+ics_latency_seconds_sum  4.81
+ics_model_loaded         <span class="g">1</span></pre>
+      <h2 style="margin:14px 0 10px">5 · Security posture</h2>
+      <div class="row"><span class="k">Runs as non-root (uid 10001)</span><span class="pill">enforced</span></div>
+      <div class="row"><span class="k">Read-only root filesystem</span><span class="pill">enforced</span></div>
+      <div class="row"><span class="k">All Linux capabilities dropped</span><span class="pill">enforced</span></div>
+      <div class="row"><span class="k">Model feed is read-only (no write-back to PLC)</span><span class="pill">enforced</span></div>
+      <div class="row"><span class="k">Secrets in code / image</span><span class="pill">none</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="text-align:center;color:var(--dim);font-size:13px">
+    <b style="color:var(--ink)">Detect → Fuse → Respond.</b> &nbsp; The model is trained offline, served here as a secured container,
+    guarded by the DevSecOps pipeline, scaled by Kubernetes, and observed through Prometheus - a cloud-native platform, not a notebook.
+  </div>
+</div></body></html>

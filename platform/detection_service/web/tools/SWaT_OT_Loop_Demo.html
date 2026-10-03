@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Live OT-Loop Demo, ICS Fusion Detection</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131d30; --panel2:#0f1728; --line:#22304a;
+    --ink:#e8eef7; --dim:#8ea3c0; --faint:#5f7392;
+    --proc:#3fb27f; --net:#4a9fe0; --fused:#f5c451; --alarm:#ef5350;
+    --ok:#3fb27f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#16233c 0%,var(--bg) 55%);
+    color:var(--ink);font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:18px}
+  h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:2px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .status{display:flex;gap:10px;align-items:center}
+  .badge{padding:6px 14px;border-radius:999px;font-weight:700;font-size:13px;border:1px solid var(--line)}
+  .badge.nominal{background:rgba(63,178,127,.13);color:var(--ok);border-color:rgba(63,178,127,.4)}
+  .badge.alarm{background:rgba(239,83,80,.16);color:#ff8a87;border-color:rgba(239,83,80,.5);
+    animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,83,80,.5)}50%{box-shadow:0 0 0 6px rgba(239,83,80,0)}}
+  .phase{padding:6px 12px;border-radius:8px;font-weight:600;font-size:12.5px;border:1px solid var(--line);background:var(--panel2)}
+  .grid{display:grid;grid-template-columns:1.05fr 1.35fr;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);font-weight:700}
+  /* plant schematic */
+  .plant{position:relative;height:270px}
+  svg{width:100%;height:100%}
+  .tag{font:600 12px ui-monospace,Menlo,Consolas,monospace;fill:var(--ink)}
+  .tagv{font:700 15px ui-monospace,Menlo,Consolas,monospace;fill:#fff}
+  .tagl{font:11px -apple-system,Segoe UI,sans-serif;fill:var(--dim)}
+  /* meters */
+  .meter{margin-bottom:16px}
+  .meter .lab{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .meter .name{font-weight:700;font-size:13.5px}
+  .meter .val{font:700 13px ui-monospace,monospace;color:var(--dim)}
+  .track{position:relative;height:18px;background:var(--panel2);border-radius:9px;overflow:hidden;border:1px solid var(--line)}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:9px;transition:width .12s linear,background .2s}
+  .thr{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.75}
+  .thr::after{content:'thr';position:absolute;top:-14px;left:-7px;font-size:9px;color:var(--dim)}
+  .meter.big .track{height:26px}
+  .meter.big .name{font-size:15px}
+  /* deception callout */
+  .decep{margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    display:flex;gap:18px;align-items:center;opacity:.5;transition:.25s}
+  .decep.on{opacity:1;border-color:rgba(239,83,80,.5);background:rgba(239,83,80,.08)}
+  .decep .b{font:700 18px ui-monospace,monospace}
+  .decep .lbl{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .gap{color:#ff8a87;font-weight:700}
+  /* chart */
+  .chartwrap{margin-top:4px}
+  canvas{width:100%;height:150px;display:block}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .kpi .n{font:700 20px ui-monospace,monospace}
+  .kpi .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  /* controls */
+  .ctrl{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 15px;font-size:13px;font-weight:600;cursor:pointer}
+  button:hover{border-color:#3a557f}
+  button.primary{background:#1d4ed8;border-color:#1d4ed8}
+  .legend{display:flex;gap:16px;margin-left:auto;font-size:11.5px;color:var(--dim);align-items:center;flex-wrap:wrap}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .foot{color:var(--dim);font-size:11.5px;margin-top:14px;text-align:center}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Live OT-Loop Demo, Process × Network Fusion Detection</h1>
+      <div class="sub">Simulated water-chlorination ICS · unsupervised detector · SWaT-style attacks</div>
+    </div>
+    <div class="status">
+      <span class="phase" id="phase">warm-up</span>
+      <span class="badge nominal" id="status">● NOMINAL</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: plant schematic -->
+    <div class="card">
+      <h2>Chlorination process (live)</h2>
+      <div class="plant">
+        <svg viewBox="0 0 380 270" preserveAspectRatio="xMidYMid meet">
+          <!-- raw water tank -->
+          <rect x="30" y="60" width="90" height="150" rx="6" fill="#0f1728" stroke="#2b3d5c"/>
+          <rect id="water" x="32" y="120" width="86" height="88" fill="url(#wg)"/>
+          <defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#2b6fb0"/><stop offset="1" stop-color="#1b4e82"/>
+            </linearGradient>
+          </defs>
+          <text class="tagl" x="75" y="230" text-anchor="middle">Raw-water tank</text>
+          <text class="tag" x="75" y="52" text-anchor="middle">LIT101</text>
+          <text class="tagv" x="75" y="150" text-anchor="middle" id="v_lit">500</text>
+
+          <!-- pipe to analyser -->
+          <line x1="120" y1="135" x2="200" y2="135" stroke="#3a4e6e" stroke-width="6"/>
+          <!-- dosing pump -->
+          <circle id="pump" cx="160" cy="135" r="16" fill="#12324f" stroke="#3fb27f" stroke-width="2"/>
+          <text class="tagl" x="160" y="170" text-anchor="middle">P101 pump</text>
+          <text class="tag" x="160" y="108" text-anchor="middle" id="v_pump">ON</text>
+
+          <!-- chlorine analyser -->
+          <rect x="205" y="95" width="90" height="80" rx="8" fill="#0f1728" stroke="#2b3d5c"/>
+          <text class="tag" x="250" y="88" text-anchor="middle">AIT201</text>
+          <text class="tagl" x="250" y="112" text-anchor="middle">chlorine mg/L</text>
+          <text class="tagv" x="250" y="145" text-anchor="middle" id="v_ait" style="font-size:22px">0.80</text>
+          <text class="tagl" x="250" y="166" text-anchor="middle" id="v_ait_state">reported</text>
+
+          <!-- network segment -->
+          <rect x="30" y="238" width="265" height="26" rx="6" fill="#0f1728" stroke="#2b3d5c"/>
+          <circle cx="46" cy="251" r="4" id="net_led" fill="#4a9fe0"/>
+          <text class="tagl" x="60" y="255">OT network</text>
+          <text class="tag" x="180" y="255" id="v_net">180 pkt/s · 6 conn</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- RIGHT: detectors -->
+    <div class="card">
+      <h2>Detector, two branches, one fused decision</h2>
+      <div class="meter">
+        <div class="lab"><span class="name" style="color:var(--proc)">Process branch</span><span class="val" id="pv">×0.0</span></div>
+        <div class="track"><div class="fill" id="pf" style="background:var(--proc)"></div><div class="thr" id="pt"></div></div>
+      </div>
+      <div class="meter">
+        <div class="lab"><span class="name" style="color:var(--net)">Network branch</span><span class="val" id="nv">×0.0</span></div>
+        <div class="track"><div class="fill" id="nf" style="background:var(--net)"></div><div class="thr" id="nt"></div></div>
+      </div>
+      <div class="meter big">
+        <div class="lab"><span class="name" style="color:var(--fused)">FUSED (max)</span><span class="val" id="fv">×0.0</span></div>
+        <div class="track"><div class="fill" id="ff" style="background:var(--fused)"></div><div class="thr" id="ft"></div></div>
+      </div>
+
+      <div class="decep" id="decep">
+        <div>
+          <div class="lbl">Operator sees</div>
+          <div class="b" id="d_rep">0.80</div>
+        </div>
+        <div style="font-size:20px;color:var(--dim)">→</div>
+        <div>
+          <div class="lbl">True chlorine</div>
+          <div class="b gap" id="d_true">0.80</div>
+        </div>
+        <div style="margin-left:auto;max-width:220px;font-size:11.5px;color:var(--dim)" id="d_msg">
+          No deception, reported value matches reality.
+        </div>
+      </div>
+
+      <div class="chartwrap">
+        <canvas id="chart" width="640" height="150"></canvas>
+        <div style="font-size:11px;color:var(--dim);margin-top:4px;text-align:center">
+          ↔ click or drag anywhere on the chart to move the cursor to any moment
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="n" id="k_t">0s</div><div class="l">Elapsed</div></div>
+        <div class="kpi"><div class="n" id="k_al">0</div><div class="l">Alarms</div></div>
+        <div class="kpi"><div class="n" id="k_src">-</div><div class="l">Fired branch</div></div>
+        <div class="kpi"><div class="n" id="k_sev" style="color:var(--fused)">×0.0</div><div class="l">Severity</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button class="primary" id="play">▶ Play</button>
+    <button id="reset">↻ Reset</button>
+    <button id="speed">Speed: 1×</button>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--proc)"></span>process</span>
+      <span><span class="dot" style="background:var(--net)"></span>network</span>
+      <span><span class="dot" style="background:var(--fused)"></span>fused</span>
+      <span><span class="dot" style="background:rgba(63,178,127,.35)"></span>sensor spoof</span>
+      <span><span class="dot" style="background:rgba(74,159,224,.35)"></span>network disruption</span>
+    </div>
+  </div>
+
+  <div class="foot">Not a recording, the plant is simulated and scored per scan from the same detector used in the notebook.
+  Spoof → process branch · Disruption → network branch · <b>Fused catches both</b>.</div>
+</div>
+
+<script>
+const DATA = {"proc_thr": 2.0343736222947983, "net_thr": 2.27613021759223, "records": [{"t": 1, "attack": "none", "LIT101": 500.37, "FIT101": 2.465, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 172.9, "N_CONN": 6, "true_cl": 0.807, "zp": 0.251, "zn": 0.282, "fused": 0.282, "pa": 0, "na": 0, "fa": 0}, {"t": 2, "attack": "none", "LIT101": 500.36, "FIT101": 2.498, "AIT201": 0.808, "P101": 1, "MV101": 1, "PKT_RATE": 177.7, "N_CONN": 6, "true_cl": 0.808, "zp": 0.218, "zn": 0.013, "fused": 0.218, "pa": 0, "na": 0, "fa": 0}, {"t": 3, "attack": "none", "LIT101": 499.72, "FIT101": 2.477, "AIT201": 0.818, "P101": 1, "MV101": 1, "PKT_RATE": 174.1, "N_CONN": 6, "true_cl": 0.818, "zp": 0.099, "zn": 0.183, "fused": 0.183, "pa": 0, "na": 0, "fa": 0}, {"t": 4, "attack": "none", "LIT101": 499.28, "FIT101": 2.526, "AIT201": 0.822, "P101": 1, "MV101": 1, "PKT_RATE": 188.8, "N_CONN": 6, "true_cl": 0.822, "zp": 0.189, "zn": 0.714, "fused": 0.714, "pa": 0, "na": 0, "fa": 0}, {"t": 5, "attack": "none", "LIT101": 500.11, "FIT101": 2.494, "AIT201": 0.815, "P101": 1, "MV101": 1, "PKT_RATE": 182.3, "N_CONN": 6, "true_cl": 0.815, "zp": 0.148, "zn": 0.08, "fused": 0.148, "pa": 0, "na": 0, "fa": 0}, {"t": 6, "attack": "none", "LIT101": 499.49, "FIT101": 2.537, "AIT201": 0.818, "P101": 1, "MV101": 1, "PKT_RATE": 188.6, "N_CONN": 6, "true_cl": 0.818, "zp": 0.135, "zn": 0.685, "fused": 0.685, "pa": 0, "na": 0, "fa": 0}, {"t": 7, "attack": "none", "LIT101": 499.16, "FIT101": 2.49, "AIT201": 0.819, "P101": 1, "MV101": 1, "PKT_RATE": 184.3, "N_CONN": 6, "true_cl": 0.819, "zp": 0.136, "zn": 0.208, "fused": 0.208, "pa": 0, "na": 0, "fa": 0}, {"t": 8, "attack": "none", "LIT101": 498.5, "FIT101": 2.413, "AIT201": 0.823, "P101": 1, "MV101": 1, "PKT_RATE": 171.7, "N_CONN": 6, "true_cl": 0.823, "zp": 0.714, "zn": 0.403, "fused": 0.714, "pa": 0, "na": 0, "fa": 0}, {"t": 9, "attack": "none", "LIT101": 498.96, "FIT101": 2.454, "AIT201": 0.816, "P101": 1, "MV101": 1, "PKT_RATE": 180.3, "N_CONN": 6, "true_cl": 0.816, "zp": 0.213, "zn": 0.012, "fused": 0.213, "pa": 0, "na": 0, "fa": 0}, {"t": 10, "attack": "none", "LIT101": 498.87, "FIT101": 2.443, "AIT201": 0.815, "P101": 1, "MV101": 1, "PKT_RATE": 183.9, "N_CONN": 6, "true_cl": 0.815, "zp": 0.272, "zn": 0.177, "fused": 0.272, "pa": 0, "na": 0, "fa": 0}, {"t": 11, "attack": "none", "LIT101": 498.57, "FIT101": 2.585, "AIT201": 0.823, "P101": 1, "MV101": 1, "PKT_RATE": 178.0, "N_CONN": 6, "true_cl": 0.823, "zp": 0.713, "zn": 0.008, "fused": 0.713, "pa": 0, "na": 0, "fa": 0}, {"t": 12, "attack": "none", "LIT101": 499.28, "FIT101": 2.433, "AIT201": 0.818, "P101": 1, "MV101": 1, "PKT_RATE": 180.9, "N_CONN": 6, "true_cl": 0.818, "zp": 0.225, "zn": 0.026, "fused": 0.225, "pa": 0, "na": 0, "fa": 0}, {"t": 13, "attack": "none", "LIT101": 499.86, "FIT101": 2.573, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 186.0, "N_CONN": 6, "true_cl": 0.807, "zp": 0.233, "zn": 0.363, "fused": 0.363, "pa": 0, "na": 0, "fa": 0}, {"t": 14, "attack": "none", "LIT101": 500.17, "FIT101": 2.413, "AIT201": 0.799, "P101": 1, "MV101": 1, "PKT_RATE": 173.0, "N_CONN": 6, "true_cl": 0.799, "zp": 0.376, "zn": 0.273, "fused": 0.376, "pa": 0, "na": 0, "fa": 0}, {"t": 15, "attack": "none", "LIT101": 500.29, "FIT101": 2.477, "AIT201": 0.785, "P101": 1, "MV101": 1, "PKT_RATE": 185.5, "N_CONN": 6, "true_cl": 0.785, "zp": 0.428, "zn": 0.313, "fused": 0.428, "pa": 0, "na": 0, "fa": 0}, {"t": 16, "attack": "none", "LIT101": 499.22, "FIT101": 2.425, "AIT201": 0.779, "P101": 1, "MV101": 1, "PKT_RATE": 187.2, "N_CONN": 6, "true_cl": 0.779, "zp": 0.585, "zn": 0.499, "fused": 0.585, "pa": 0, "na": 0, "fa": 0}, {"t": 17, "attack": "none", "LIT101": 499.45, "FIT101": 2.498, "AIT201": 0.783, "P101": 1, "MV101": 1, "PKT_RATE": 172.8, "N_CONN": 6, "true_cl": 0.783, "zp": 0.287, "zn": 0.292, "fused": 0.292, "pa": 0, "na": 0, "fa": 0}, {"t": 18, "attack": "none", "LIT101": 499.42, "FIT101": 2.466, "AIT201": 0.785, "P101": 1, "MV101": 1, "PKT_RATE": 173.2, "N_CONN": 6, "true_cl": 0.785, "zp": 0.269, "zn": 0.255, "fused": 0.269, "pa": 0, "na": 0, "fa": 0}, {"t": 19, "attack": "none", "LIT101": 500.58, "FIT101": 2.553, "AIT201": 0.788, "P101": 1, "MV101": 1, "PKT_RATE": 181.2, "N_CONN": 6, "true_cl": 0.788, "zp": 0.629, "zn": 0.035, "fused": 0.629, "pa": 0, "na": 0, "fa": 0}, {"t": 20, "attack": "none", "LIT101": 499.34, "FIT101": 2.583, "AIT201": 0.779, "P101": 1, "MV101": 1, "PKT_RATE": 177.3, "N_CONN": 6, "true_cl": 0.779, "zp": 0.657, "zn": 0.023, "fused": 0.657, "pa": 0, "na": 0, "fa": 0}, {"t": 21, "attack": "none", "LIT101": 500.04, "FIT101": 2.54, "AIT201": 0.801, "P101": 1, "MV101": 1, "PKT_RATE": 174.3, "N_CONN": 6, "true_cl": 0.801, "zp": 0.16, "zn": 0.168, "fused": 0.168, "pa": 0, "na": 0, "fa": 0}, {"t": 22, "attack": "none", "LIT101": 500.51, "FIT101": 2.419, "AIT201": 0.82, "P101": 1, "MV101": 1, "PKT_RATE": 171.5, "N_CONN": 6, "true_cl": 0.82, "zp": 0.596, "zn": 0.426, "fused": 0.596, "pa": 0, "na": 0, "fa": 0}, {"t": 23, "attack": "none", "LIT101": 499.62, "FIT101": 2.589, "AIT201": 0.819, "P101": 1, "MV101": 1, "PKT_RATE": 171.7, "N_CONN": 6, "true_cl": 0.819, "zp": 0.382, "zn": 0.403, "fused": 0.403, "pa": 0, "na": 0, "fa": 0}, {"t": 24, "attack": "none", "LIT101": 499.05, "FIT101": 2.525, "AIT201": 0.798, "P101": 1, "MV101": 1, "PKT_RATE": 187.4, "N_CONN": 6, "true_cl": 0.798, "zp": 0.137, "zn": 0.524, "fused": 0.524, "pa": 0, "na": 0, "fa": 0}, {"t": 25, "attack": "none", "LIT101": 499.05, "FIT101": 2.565, "AIT201": 0.799, "P101": 1, "MV101": 1, "PKT_RATE": 173.9, "N_CONN": 6, "true_cl": 0.799, "zp": 0.26, "zn": 0.198, "fused": 0.26, "pa": 0, "na": 0, "fa": 0}, {"t": 26, "attack": "none", "LIT101": 499.87, "FIT101": 2.411, "AIT201": 0.811, "P101": 1, "MV101": 1, "PKT_RATE": 176.3, "N_CONN": 6, "true_cl": 0.811, "zp": 0.282, "zn": 0.056, "fused": 0.282, "pa": 0, "na": 0, "fa": 0}, {"t": 27, "attack": "none", "LIT101": 499.0, "FIT101": 2.449, "AIT201": 0.805, "P101": 1, "MV101": 1, "PKT_RATE": 175.4, "N_CONN": 6, "true_cl": 0.805, "zp": 0.16, "zn": 0.099, "fused": 0.16, "pa": 0, "na": 0, "fa": 0}, {"t": 28, "attack": "none", "LIT101": 499.73, "FIT101": 2.539, "AIT201": 0.794, "P101": 1, "MV101": 1, "PKT_RATE": 174.8, "N_CONN": 6, "true_cl": 0.794, "zp": 0.153, "zn": 0.135, "fused": 0.153, "pa": 0, "na": 0, "fa": 0}, {"t": 29, "attack": "none", "LIT101": 500.18, "FIT101": 2.518, "AIT201": 0.812, "P101": 1, "MV101": 1, "PKT_RATE": 174.9, "N_CONN": 6, "true_cl": 0.812, "zp": 0.168, "zn": 0.128, "fused": 0.168, "pa": 0, "na": 0, "fa": 0}, {"t": 30, "attack": "none", "LIT101": 499.27, "FIT101": 2.51, "AIT201": 0.826, "P101": 1, "MV101": 1, "PKT_RATE": 178.8, "N_CONN": 6, "true_cl": 0.826, "zp": 0.244, "zn": 0.0, "fused": 0.244, "pa": 0, "na": 0, "fa": 0}, {"t": 31, "attack": "none", "LIT101": 499.09, "FIT101": 2.421, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 184.1, "N_CONN": 6, "true_cl": 0.807, "zp": 0.243, "zn": 0.192, "fused": 0.243, "pa": 0, "na": 0, "fa": 0}, {"t": 32, "attack": "none", "LIT101": 498.56, "FIT101": 2.473, "AIT201": 0.801, "P101": 1, "MV101": 1, "PKT_RATE": 177.8, "N_CONN": 6, "true_cl": 0.801, "zp": 0.329, "zn": 0.011, "fused": 0.329, "pa": 0, "na": 0, "fa": 0}, {"t": 33, "attack": "none", "LIT101": 499.47, "FIT101": 2.574, "AIT201": 0.806, "P101": 1, "MV101": 1, "PKT_RATE": 179.6, "N_CONN": 6, "true_cl": 0.806, "zp": 0.205, "zn": 0.002, "fused": 0.205, "pa": 0, "na": 0, "fa": 0}, {"t": 34, "attack": "none", "LIT101": 499.72, "FIT101": 2.522, "AIT201": 0.814, "P101": 1, "MV101": 1, "PKT_RATE": 187.2, "N_CONN": 6, "true_cl": 0.814, "zp": 0.069, "zn": 0.499, "fused": 0.499, "pa": 0, "na": 0, "fa": 0}, {"t": 35, "attack": "none", "LIT101": 499.53, "FIT101": 2.473, "AIT201": 0.79, "P101": 1, "MV101": 1, "PKT_RATE": 178.9, "N_CONN": 6, "true_cl": 0.79, "zp": 0.154, "zn": 0.0, "fused": 0.154, "pa": 0, "na": 0, "fa": 0}, {"t": 36, "attack": "none", "LIT101": 499.49, "FIT101": 2.441, "AIT201": 0.8, "P101": 1, "MV101": 1, "PKT_RATE": 187.6, "N_CONN": 6, "true_cl": 0.8, "zp": 0.116, "zn": 0.549, "fused": 0.549, "pa": 0, "na": 0, "fa": 0}, {"t": 37, "attack": "none", "LIT101": 500.26, "FIT101": 2.581, "AIT201": 0.817, "P101": 1, "MV101": 1, "PKT_RATE": 187.8, "N_CONN": 6, "true_cl": 0.817, "zp": 0.473, "zn": 0.575, "fused": 0.575, "pa": 0, "na": 0, "fa": 0}, {"t": 38, "attack": "none", "LIT101": 500.61, "FIT101": 2.5, "AIT201": 0.815, "P101": 1, "MV101": 1, "PKT_RATE": 188.5, "N_CONN": 6, "true_cl": 0.815, "zp": 0.409, "zn": 0.671, "fused": 0.671, "pa": 0, "na": 0, "fa": 0}, {"t": 39, "attack": "none", "LIT101": 499.45, "FIT101": 2.415, "AIT201": 0.802, "P101": 1, "MV101": 1, "PKT_RATE": 182.0, "N_CONN": 6, "true_cl": 0.802, "zp": 0.222, "zn": 0.066, "fused": 0.222, "pa": 0, "na": 0, "fa": 0}, {"t": 40, "attack": "none", "LIT101": 499.89, "FIT101": 2.431, "AIT201": 0.805, "P101": 1, "MV101": 1, "PKT_RATE": 181.5, "N_CONN": 6, "true_cl": 0.805, "zp": 0.176, "zn": 0.045, "fused": 0.176, "pa": 0, "na": 0, "fa": 0}, {"t": 41, "attack": "spoof", "LIT101": 500.43, "FIT101": 2.573, "AIT201": 0.784, "P101": 0, "MV101": 1, "PKT_RATE": 176.0, "N_CONN": 6, "true_cl": 0.65, "zp": 10.543, "zn": 0.069, "fused": 10.543, "pa": 1, "na": 0, "fa": 1}, {"t": 42, "attack": "spoof", "LIT101": 500.94, "FIT101": 2.576, "AIT201": 0.78, "P101": 0, "MV101": 1, "PKT_RATE": 187.3, "N_CONN": 6, "true_cl": 0.572, "zp": 11.032, "zn": 0.512, "fused": 11.032, "pa": 1, "na": 0, "fa": 1}, {"t": 43, "attack": "spoof", "LIT101": 501.39, "FIT101": 2.523, "AIT201": 0.812, "P101": 0, "MV101": 1, "PKT_RATE": 177.1, "N_CONN": 6, "true_cl": 0.545, "zp": 10.962, "zn": 0.028, "fused": 10.962, "pa": 1, "na": 0, "fa": 1}, {"t": 44, "attack": "spoof", "LIT101": 500.57, "FIT101": 2.413, "AIT201": 0.812, "P101": 0, "MV101": 1, "PKT_RATE": 183.2, "N_CONN": 6, "true_cl": 0.535, "zp": 10.411, "zn": 0.13, "fused": 10.411, "pa": 1, "na": 0, "fa": 1}, {"t": 45, "attack": "spoof", "LIT101": 499.55, "FIT101": 2.42, "AIT201": 0.805, "P101": 0, "MV101": 1, "PKT_RATE": 175.9, "N_CONN": 6, "true_cl": 0.504, "zp": 10.017, "zn": 0.074, "fused": 10.017, "pa": 1, "na": 0, "fa": 1}, {"t": 46, "attack": "spoof", "LIT101": 498.61, "FIT101": 2.492, "AIT201": 0.782, "P101": 0, "MV101": 1, "PKT_RATE": 175.6, "N_CONN": 6, "true_cl": 0.517, "zp": 10.41, "zn": 0.089, "fused": 10.41, "pa": 1, "na": 0, "fa": 1}, {"t": 47, "attack": "spoof", "LIT101": 497.91, "FIT101": 2.549, "AIT201": 0.799, "P101": 0, "MV101": 1, "PKT_RATE": 185.8, "N_CONN": 6, "true_cl": 0.523, "zp": 10.784, "zn": 0.343, "fused": 10.784, "pa": 1, "na": 0, "fa": 1}, {"t": 48, "attack": "spoof", "LIT101": 497.7, "FIT101": 2.547, "AIT201": 0.819, "P101": 0, "MV101": 1, "PKT_RATE": 186.3, "N_CONN": 6, "true_cl": 0.502, "zp": 11.071, "zn": 0.395, "fused": 11.071, "pa": 1, "na": 0, "fa": 1}, {"t": 49, "attack": "spoof", "LIT101": 497.74, "FIT101": 2.543, "AIT201": 0.807, "P101": 0, "MV101": 1, "PKT_RATE": 184.9, "N_CONN": 6, "true_cl": 0.5, "zp": 10.922, "zn": 0.258, "fused": 10.922, "pa": 1, "na": 0, "fa": 1}, {"t": 50, "attack": "spoof", "LIT101": 497.92, "FIT101": 2.427, "AIT201": 0.791, "P101": 0, "MV101": 1, "PKT_RATE": 186.3, "N_CONN": 6, "true_cl": 0.515, "zp": 10.926, "zn": 0.395, "fused": 10.926, "pa": 1, "na": 0, "fa": 1}, {"t": 51, "attack": "spoof", "LIT101": 497.56, "FIT101": 2.553, "AIT201": 0.786, "P101": 0, "MV101": 1, "PKT_RATE": 182.4, "N_CONN": 6, "true_cl": 0.506, "zp": 11.385, "zn": 0.085, "fused": 11.385, "pa": 1, "na": 0, "fa": 1}, {"t": 52, "attack": "spoof", "LIT101": 498.98, "FIT101": 2.434, "AIT201": 0.792, "P101": 0, "MV101": 1, "PKT_RATE": 184.1, "N_CONN": 6, "true_cl": 0.494, "zp": 10.156, "zn": 0.192, "fused": 10.156, "pa": 1, "na": 0, "fa": 1}, {"t": 53, "attack": "spoof", "LIT101": 499.99, "FIT101": 2.496, "AIT201": 0.809, "P101": 0, "MV101": 1, "PKT_RATE": 173.6, "N_CONN": 6, "true_cl": 0.493, "zp": 9.901, "zn": 0.222, "fused": 9.901, "pa": 1, "na": 0, "fa": 1}, {"t": 54, "attack": "spoof", "LIT101": 499.68, "FIT101": 2.468, "AIT201": 0.815, "P101": 0, "MV101": 1, "PKT_RATE": 171.3, "N_CONN": 6, "true_cl": 0.504, "zp": 9.906, "zn": 0.449, "fused": 9.906, "pa": 1, "na": 0, "fa": 1}, {"t": 55, "attack": "spoof", "LIT101": 500.7, "FIT101": 2.522, "AIT201": 0.788, "P101": 0, "MV101": 1, "PKT_RATE": 185.2, "N_CONN": 6, "true_cl": 0.493, "zp": 10.458, "zn": 0.285, "fused": 10.458, "pa": 1, "na": 0, "fa": 1}, {"t": 56, "attack": "spoof", "LIT101": 500.07, "FIT101": 2.561, "AIT201": 0.804, "P101": 0, "MV101": 1, "PKT_RATE": 184.3, "N_CONN": 6, "true_cl": 0.511, "zp": 10.066, "zn": 0.208, "fused": 10.066, "pa": 1, "na": 0, "fa": 1}, {"t": 57, "attack": "spoof", "LIT101": 499.83, "FIT101": 2.528, "AIT201": 0.803, "P101": 0, "MV101": 1, "PKT_RATE": 176.3, "N_CONN": 6, "true_cl": 0.521, "zp": 9.899, "zn": 0.056, "fused": 9.899, "pa": 1, "na": 0, "fa": 1}, {"t": 58, "attack": "spoof", "LIT101": 500.69, "FIT101": 2.546, "AIT201": 0.809, "P101": 0, "MV101": 1, "PKT_RATE": 174.3, "N_CONN": 6, "true_cl": 0.513, "zp": 10.342, "zn": 0.168, "fused": 10.342, "pa": 1, "na": 0, "fa": 1}, {"t": 59, "attack": "spoof", "LIT101": 500.62, "FIT101": 2.584, "AIT201": 0.79, "P101": 0, "MV101": 1, "PKT_RATE": 188.3, "N_CONN": 6, "true_cl": 0.505, "zp": 10.6, "zn": 0.643, "fused": 10.6, "pa": 1, "na": 0, "fa": 1}, {"t": 60, "attack": "spoof", "LIT101": 501.48, "FIT101": 2.413, "AIT201": 0.782, "P101": 0, "MV101": 1, "PKT_RATE": 179.0, "N_CONN": 6, "true_cl": 0.519, "zp": 11.557, "zn": 0.0, "fused": 11.557, "pa": 1, "na": 0, "fa": 1}, {"t": 61, "attack": "spoof", "LIT101": 501.08, "FIT101": 2.43, "AIT201": 0.784, "P101": 0, "MV101": 1, "PKT_RATE": 172.7, "N_CONN": 6, "true_cl": 0.505, "zp": 10.984, "zn": 0.301, "fused": 10.984, "pa": 1, "na": 0, "fa": 1}, {"t": 62, "attack": "spoof", "LIT101": 500.05, "FIT101": 2.536, "AIT201": 0.796, "P101": 0, "MV101": 1, "PKT_RATE": 176.1, "N_CONN": 6, "true_cl": 0.491, "zp": 10.024, "zn": 0.065, "fused": 10.024, "pa": 1, "na": 0, "fa": 1}, {"t": 63, "attack": "spoof", "LIT101": 500.75, "FIT101": 2.411, "AIT201": 0.806, "P101": 0, "MV101": 1, "PKT_RATE": 176.8, "N_CONN": 6, "true_cl": 0.494, "zp": 10.53, "zn": 0.038, "fused": 10.53, "pa": 1, "na": 0, "fa": 1}, {"t": 64, "attack": "spoof", "LIT101": 499.89, "FIT101": 2.538, "AIT201": 0.803, "P101": 0, "MV101": 1, "PKT_RATE": 180.5, "N_CONN": 6, "true_cl": 0.501, "zp": 9.936, "zn": 0.016, "fused": 9.936, "pa": 1, "na": 0, "fa": 1}, {"t": 65, "attack": "spoof", "LIT101": 498.71, "FIT101": 2.463, "AIT201": 0.813, "P101": 0, "MV101": 1, "PKT_RATE": 179.9, "N_CONN": 6, "true_cl": 0.504, "zp": 10.105, "zn": 0.006, "fused": 10.105, "pa": 1, "na": 0, "fa": 1}, {"t": 66, "attack": "none", "LIT101": 498.32, "FIT101": 2.58, "AIT201": 0.609, "P101": 1, "MV101": 1, "PKT_RATE": 176.0, "N_CONN": 6, "true_cl": 0.609, "zp": 10.532, "zn": 0.069, "fused": 10.532, "pa": 1, "na": 0, "fa": 1}, {"t": 67, "attack": "none", "LIT101": 499.2, "FIT101": 2.46, "AIT201": 0.689, "P101": 1, "MV101": 1, "PKT_RATE": 182.9, "N_CONN": 6, "true_cl": 0.689, "zp": 7.434, "zn": 0.112, "fused": 7.434, "pa": 1, "na": 0, "fa": 1}, {"t": 68, "attack": "none", "LIT101": 498.93, "FIT101": 2.432, "AIT201": 0.75, "P101": 1, "MV101": 1, "PKT_RATE": 185.1, "N_CONN": 6, "true_cl": 0.75, "zp": 1.932, "zn": 0.275, "fused": 1.932, "pa": 1, "na": 0, "fa": 1}, {"t": 69, "attack": "none", "LIT101": 499.04, "FIT101": 2.551, "AIT201": 0.767, "P101": 1, "MV101": 1, "PKT_RATE": 172.3, "N_CONN": 6, "true_cl": 0.767, "zp": 0.997, "zn": 0.34, "fused": 0.997, "pa": 0, "na": 0, "fa": 0}, {"t": 70, "attack": "none", "LIT101": 499.91, "FIT101": 2.439, "AIT201": 0.79, "P101": 1, "MV101": 1, "PKT_RATE": 171.3, "N_CONN": 6, "true_cl": 0.79, "zp": 0.286, "zn": 0.449, "fused": 0.449, "pa": 0, "na": 0, "fa": 0}, {"t": 71, "attack": "none", "LIT101": 499.36, "FIT101": 2.477, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 171.6, "N_CONN": 6, "true_cl": 0.807, "zp": 0.021, "zn": 0.415, "fused": 0.415, "pa": 0, "na": 0, "fa": 0}, {"t": 72, "attack": "none", "LIT101": 500.14, "FIT101": 2.577, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 178.2, "N_CONN": 6, "true_cl": 0.807, "zp": 0.336, "zn": 0.005, "fused": 0.336, "pa": 0, "na": 0, "fa": 0}, {"t": 73, "attack": "none", "LIT101": 500.93, "FIT101": 2.554, "AIT201": 0.824, "P101": 1, "MV101": 1, "PKT_RATE": 176.4, "N_CONN": 6, "true_cl": 0.824, "zp": 0.902, "zn": 0.052, "fused": 0.902, "pa": 0, "na": 0, "fa": 0}, {"t": 74, "attack": "none", "LIT101": 500.46, "FIT101": 2.45, "AIT201": 0.798, "P101": 1, "MV101": 1, "PKT_RATE": 181.9, "N_CONN": 6, "true_cl": 0.798, "zp": 0.372, "zn": 0.061, "fused": 0.372, "pa": 0, "na": 0, "fa": 0}, {"t": 75, "attack": "none", "LIT101": 500.63, "FIT101": 2.515, "AIT201": 0.813, "P101": 1, "MV101": 1, "PKT_RATE": 179.4, "N_CONN": 6, "true_cl": 0.813, "zp": 0.418, "zn": 0.001, "fused": 0.418, "pa": 0, "na": 0, "fa": 0}, {"t": 76, "attack": "none", "LIT101": 499.85, "FIT101": 2.456, "AIT201": 0.809, "P101": 1, "MV101": 1, "PKT_RATE": 176.5, "N_CONN": 6, "true_cl": 0.809, "zp": 0.087, "zn": 0.048, "fused": 0.087, "pa": 0, "na": 0, "fa": 0}, {"t": 77, "attack": "none", "LIT101": 499.24, "FIT101": 2.533, "AIT201": 0.796, "P101": 1, "MV101": 1, "PKT_RATE": 177.3, "N_CONN": 6, "true_cl": 0.796, "zp": 0.128, "zn": 0.023, "fused": 0.128, "pa": 0, "na": 0, "fa": 0}, {"t": 78, "attack": "none", "LIT101": 498.67, "FIT101": 2.514, "AIT201": 0.794, "P101": 1, "MV101": 1, "PKT_RATE": 175.5, "N_CONN": 6, "true_cl": 0.794, "zp": 0.324, "zn": 0.094, "fused": 0.324, "pa": 0, "na": 0, "fa": 0}, {"t": 79, "attack": "none", "LIT101": 498.17, "FIT101": 2.516, "AIT201": 0.778, "P101": 1, "MV101": 1, "PKT_RATE": 186.1, "N_CONN": 6, "true_cl": 0.778, "zp": 1.022, "zn": 0.374, "fused": 1.022, "pa": 1, "na": 0, "fa": 1}, {"t": 80, "attack": "none", "LIT101": 499.25, "FIT101": 2.463, "AIT201": 0.767, "P101": 1, "MV101": 1, "PKT_RATE": 185.1, "N_CONN": 6, "true_cl": 0.767, "zp": 0.877, "zn": 0.275, "fused": 0.877, "pa": 0, "na": 0, "fa": 0}, {"t": 81, "attack": "none", "LIT101": 498.51, "FIT101": 2.548, "AIT201": 0.761, "P101": 1, "MV101": 1, "PKT_RATE": 171.1, "N_CONN": 6, "true_cl": 0.761, "zp": 1.511, "zn": 0.472, "fused": 1.511, "pa": 1, "na": 0, "fa": 1}, {"t": 82, "attack": "none", "LIT101": 498.68, "FIT101": 2.542, "AIT201": 0.786, "P101": 1, "MV101": 1, "PKT_RATE": 183.2, "N_CONN": 6, "true_cl": 0.786, "zp": 0.517, "zn": 0.13, "fused": 0.517, "pa": 0, "na": 0, "fa": 0}, {"t": 83, "attack": "none", "LIT101": 497.84, "FIT101": 2.496, "AIT201": 0.807, "P101": 1, "MV101": 1, "PKT_RATE": 183.3, "N_CONN": 6, "true_cl": 0.807, "zp": 0.905, "zn": 0.136, "fused": 0.905, "pa": 0, "na": 0, "fa": 0}, {"t": 84, "attack": "none", "LIT101": 498.47, "FIT101": 2.493, "AIT201": 0.802, "P101": 1, "MV101": 1, "PKT_RATE": 177.5, "N_CONN": 6, "true_cl": 0.802, "zp": 0.366, "zn": 0.018, "fused": 0.366, "pa": 0, "na": 0, "fa": 0}, {"t": 85, "attack": "none", "LIT101": 498.77, "FIT101": 2.585, "AIT201": 0.814, "P101": 1, "MV101": 1, "PKT_RATE": 177.7, "N_CONN": 6, "true_cl": 0.814, "zp": 0.484, "zn": 0.013, "fused": 0.484, "pa": 0, "na": 0, "fa": 0}, {"t": 86, "attack": "disruption", "LIT101": 481.89, "FIT101": 2.524, "AIT201": 0.581, "P101": 1, "MV101": 1, "PKT_RATE": 964.2, "N_CONN": 42, "true_cl": 0.813, "zp": 19.689, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 87, "attack": "disruption", "LIT101": 509.05, "FIT101": 2.446, "AIT201": 0.635, "P101": 1, "MV101": 1, "PKT_RATE": 893.7, "N_CONN": 42, "true_cl": 0.819, "zp": 19.741, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 88, "attack": "disruption", "LIT101": 511.63, "FIT101": 2.452, "AIT201": 0.772, "P101": 1, "MV101": 1, "PKT_RATE": 895.7, "N_CONN": 42, "true_cl": 0.793, "zp": 10.514, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 89, "attack": "disruption", "LIT101": 480.45, "FIT101": 2.45, "AIT201": 0.643, "P101": 1, "MV101": 1, "PKT_RATE": 922.2, "N_CONN": 42, "true_cl": 0.786, "zp": 19.729, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 90, "attack": "disruption", "LIT101": 510.7, "FIT101": 2.513, "AIT201": 1.003, "P101": 1, "MV101": 1, "PKT_RATE": 957.5, "N_CONN": 42, "true_cl": 0.806, "zp": 19.673, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 91, "attack": "disruption", "LIT101": 504.51, "FIT101": 2.511, "AIT201": 0.794, "P101": 1, "MV101": 1, "PKT_RATE": 961.3, "N_CONN": 42, "true_cl": 0.823, "zp": 7.893, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 92, "attack": "disruption", "LIT101": 495.6, "FIT101": 2.426, "AIT201": 0.916, "P101": 1, "MV101": 1, "PKT_RATE": 911.6, "N_CONN": 42, "true_cl": 0.823, "zp": 11.542, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 93, "attack": "disruption", "LIT101": 515.58, "FIT101": 2.482, "AIT201": 0.675, "P101": 1, "MV101": 1, "PKT_RATE": 903.6, "N_CONN": 42, "true_cl": 0.822, "zp": 19.062, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 94, "attack": "disruption", "LIT101": 511.9, "FIT101": 2.463, "AIT201": 0.909, "P101": 1, "MV101": 1, "PKT_RATE": 1008.6, "N_CONN": 42, "true_cl": 0.824, "zp": 15.568, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 95, "attack": "disruption", "LIT101": 478.14, "FIT101": 2.546, "AIT201": 0.953, "P101": 1, "MV101": 1, "PKT_RATE": 890.8, "N_CONN": 42, "true_cl": 0.803, "zp": 19.747, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 96, "attack": "disruption", "LIT101": 512.22, "FIT101": 2.511, "AIT201": 0.617, "P101": 1, "MV101": 1, "PKT_RATE": 890.4, "N_CONN": 42, "true_cl": 0.82, "zp": 19.67, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 97, "attack": "disruption", "LIT101": 498.42, "FIT101": 2.577, "AIT201": 0.555, "P101": 1, "MV101": 1, "PKT_RATE": 874.6, "N_CONN": 42, "true_cl": 0.827, "zp": 10.442, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 98, "attack": "disruption", "LIT101": 507.74, "FIT101": 2.589, "AIT201": 1.038, "P101": 1, "MV101": 1, "PKT_RATE": 906.9, "N_CONN": 42, "true_cl": 0.804, "zp": 19.951, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 99, "attack": "disruption", "LIT101": 503.42, "FIT101": 2.548, "AIT201": 0.592, "P101": 1, "MV101": 1, "PKT_RATE": 983.2, "N_CONN": 42, "true_cl": 0.786, "zp": 14.684, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 100, "attack": "disruption", "LIT101": 486.78, "FIT101": 2.475, "AIT201": 0.735, "P101": 1, "MV101": 1, "PKT_RATE": 910.8, "N_CONN": 42, "true_cl": 0.792, "zp": 12.554, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 101, "attack": "disruption", "LIT101": 481.28, "FIT101": 2.475, "AIT201": 0.7, "P101": 1, "MV101": 1, "PKT_RATE": 964.6, "N_CONN": 42, "true_cl": 0.776, "zp": 15.884, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 102, "attack": "disruption", "LIT101": 491.28, "FIT101": 2.415, "AIT201": 0.619, "P101": 1, "MV101": 1, "PKT_RATE": 1020.6, "N_CONN": 42, "true_cl": 0.777, "zp": 19.873, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 103, "attack": "disruption", "LIT101": 521.4, "FIT101": 2.415, "AIT201": 0.823, "P101": 1, "MV101": 1, "PKT_RATE": 989.0, "N_CONN": 42, "true_cl": 0.786, "zp": 10.198, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 104, "attack": "disruption", "LIT101": 502.0, "FIT101": 2.41, "AIT201": 0.709, "P101": 1, "MV101": 1, "PKT_RATE": 1003.0, "N_CONN": 42, "true_cl": 0.776, "zp": 7.214, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 105, "attack": "disruption", "LIT101": 520.23, "FIT101": 2.582, "AIT201": 0.602, "P101": 1, "MV101": 1, "PKT_RATE": 893.0, "N_CONN": 42, "true_cl": 0.772, "zp": 19.91, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 106, "attack": "disruption", "LIT101": 490.82, "FIT101": 2.421, "AIT201": 0.942, "P101": 1, "MV101": 1, "PKT_RATE": 997.5, "N_CONN": 42, "true_cl": 0.785, "zp": 19.843, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 107, "attack": "disruption", "LIT101": 482.86, "FIT101": 2.478, "AIT201": 1.001, "P101": 1, "MV101": 1, "PKT_RATE": 910.0, "N_CONN": 42, "true_cl": 0.805, "zp": 19.672, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 108, "attack": "disruption", "LIT101": 509.4, "FIT101": 2.551, "AIT201": 0.989, "P101": 1, "MV101": 1, "PKT_RATE": 989.8, "N_CONN": 42, "true_cl": 0.786, "zp": 19.764, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 109, "attack": "disruption", "LIT101": 521.77, "FIT101": 2.422, "AIT201": 0.761, "P101": 1, "MV101": 1, "PKT_RATE": 912.6, "N_CONN": 42, "true_cl": 0.809, "zp": 11.095, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 110, "attack": "disruption", "LIT101": 516.15, "FIT101": 2.49, "AIT201": 0.932, "P101": 1, "MV101": 1, "PKT_RATE": 999.0, "N_CONN": 42, "true_cl": 0.787, "zp": 18.366, "zn": 43.934, "fused": 43.934, "pa": 1, "na": 1, "fa": 1}, {"t": 111, "attack": "none", "LIT101": 501.44, "FIT101": 2.515, "AIT201": 0.789, "P101": 1, "MV101": 1, "PKT_RATE": 187.1, "N_CONN": 6, "true_cl": 0.789, "zp": 1.314, "zn": 0.487, "fused": 1.314, "pa": 1, "na": 0, "fa": 1}, {"t": 112, "attack": "none", "LIT101": 501.09, "FIT101": 2.59, "AIT201": 0.81, "P101": 1, "MV101": 1, "PKT_RATE": 177.1, "N_CONN": 6, "true_cl": 0.81, "zp": 1.067, "zn": 0.028, "fused": 1.067, "pa": 1, "na": 0, "fa": 1}, {"t": 113, "attack": "none", "LIT101": 499.73, "FIT101": 2.513, "AIT201": 0.806, "P101": 1, "MV101": 1, "PKT_RATE": 175.9, "N_CONN": 6, "true_cl": 0.806, "zp": 0.023, "zn": 0.074, "fused": 0.074, "pa": 0, "na": 0, "fa": 0}, {"t": 114, "attack": "none", "LIT101": 498.65, "FIT101": 2.527, "AIT201": 0.8, "P101": 1, "MV101": 1, "PKT_RATE": 173.8, "N_CONN": 6, "true_cl": 0.8, "zp": 0.299, "zn": 0.206, "fused": 0.299, "pa": 0, "na": 0, "fa": 0}, {"t": 115, "attack": "none", "LIT101": 498.86, "FIT101": 2.487, "AIT201": 0.802, "P101": 1, "MV101": 1, "PKT_RATE": 181.6, "N_CONN": 6, "true_cl": 0.802, "zp": 0.154, "zn": 0.049, "fused": 0.154, "pa": 0, "na": 0, "fa": 0}, {"t": 116, "attack": "none", "LIT101": 499.69, "FIT101": 2.426, "AIT201": 0.788, "P101": 1, "MV101": 1, "PKT_RATE": 178.3, "N_CONN": 6, "true_cl": 0.788, "zp": 0.339, "zn": 0.004, "fused": 0.339, "pa": 0, "na": 0, "fa": 0}, {"t": 117, "attack": "none", "LIT101": 500.61, "FIT101": 2.455, "AIT201": 0.798, "P101": 1, "MV101": 1, "PKT_RATE": 171.6, "N_CONN": 6, "true_cl": 0.798, "zp": 0.452, "zn": 0.415, "fused": 0.452, "pa": 0, "na": 0, "fa": 0}, {"t": 118, "attack": "none", "LIT101": 501.06, "FIT101": 2.492, "AIT201": 0.81, "P101": 1, "MV101": 1, "PKT_RATE": 181.0, "N_CONN": 6, "true_cl": 0.81, "zp": 0.743, "zn": 0.029, "fused": 0.743, "pa": 0, "na": 0, "fa": 0}, {"t": 119, "attack": "none", "LIT101": 501.33, "FIT101": 2.581, "AIT201": 0.79, "P101": 1, "MV101": 1, "PKT_RATE": 179.6, "N_CONN": 6, "true_cl": 0.79, "zp": 1.397, "zn": 0.002, "fused": 1.397, "pa": 1, "na": 0, "fa": 1}, {"t": 120, "attack": "none", "LIT101": 501.3, "FIT101": 2.486, "AIT201": 0.774, "P101": 1, "MV101": 1, "PKT_RATE": 182.4, "N_CONN": 6, "true_cl": 0.774, "zp": 1.537, "zn": 0.085, "fused": 1.537, "pa": 1, "na": 0, "fa": 1}, {"t": 121, "attack": "none", "LIT101": 501.65, "FIT101": 2.578, "AIT201": 0.767, "P101": 1, "MV101": 1, "PKT_RATE": 175.3, "N_CONN": 6, "true_cl": 0.767, "zp": 2.455, "zn": 0.105, "fused": 2.455, "pa": 1, "na": 0, "fa": 1}, {"t": 122, "attack": "none", "LIT101": 501.06, "FIT101": 2.558, "AIT201": 0.777, "P101": 1, "MV101": 1, "PKT_RATE": 179.7, "N_CONN": 6, "true_cl": 0.777, "zp": 1.316, "zn": 0.003, "fused": 1.316, "pa": 1, "na": 0, "fa": 1}, {"t": 123, "attack": "none", "LIT101": 500.7, "FIT101": 2.528, "AIT201": 0.781, "P101": 1, "MV101": 1, "PKT_RATE": 184.5, "N_CONN": 6, "true_cl": 0.781, "zp": 0.8, "zn": 0.224, "fused": 0.8, "pa": 0, "na": 0, "fa": 0}, {"t": 124, "attack": "none", "LIT101": 500.86, "FIT101": 2.436, "AIT201": 0.788, "P101": 1, "MV101": 1, "PKT_RATE": 185.8, "N_CONN": 6, "true_cl": 0.788, "zp": 0.844, "zn": 0.343, "fused": 0.844, "pa": 0, "na": 0, "fa": 0}, {"t": 125, "attack": "none", "LIT101": 500.9, "FIT101": 2.42, "AIT201": 0.804, "P101": 1, "MV101": 1, "PKT_RATE": 172.7, "N_CONN": 6, "true_cl": 0.804, "zp": 0.776, "zn": 0.301, "fused": 0.776, "pa": 0, "na": 0, "fa": 0}, {"t": 126, "attack": "none", "LIT101": 501.52, "FIT101": 2.577, "AIT201": 0.822, "P101": 1, "MV101": 1, "PKT_RATE": 175.3, "N_CONN": 6, "true_cl": 0.822, "zp": 1.601, "zn": 0.105, "fused": 1.601, "pa": 1, "na": 0, "fa": 1}, {"t": 127, "attack": "none", "LIT101": 501.52, "FIT101": 2.566, "AIT201": 0.822, "P101": 1, "MV101": 1, "PKT_RATE": 177.6, "N_CONN": 6, "true_cl": 0.822, "zp": 1.546, "zn": 0.015, "fused": 1.546, "pa": 1, "na": 0, "fa": 1}, {"t": 128, "attack": "none", "LIT101": 500.66, "FIT101": 2.585, "AIT201": 0.832, "P101": 1, "MV101": 1, "PKT_RATE": 188.9, "N_CONN": 6, "true_cl": 0.832, "zp": 1.028, "zn": 0.729, "fused": 1.028, "pa": 1, "na": 0, "fa": 1}, {"t": 129, "attack": "none", "LIT101": 499.39, "FIT101": 2.554, "AIT201": 0.803, "P101": 1, "MV101": 1, "PKT_RATE": 188.9, "N_CONN": 6, "true_cl": 0.803, "zp": 0.125, "zn": 0.729, "fused": 0.729, "pa": 0, "na": 0, "fa": 0}, {"t": 130, "attack": "none", "LIT101": 498.77, "FIT101": 2.494, "AIT201": 0.813, "P101": 1, "MV101": 1, "PKT_RATE": 185.0, "N_CONN": 6, "true_cl": 0.813, "zp": 0.21, "zn": 0.266, "fused": 0.266, "pa": 0, "na": 0, "fa": 0}, {"t": 131, "attack": "none", "LIT101": 498.73, "FIT101": 2.52, "AIT201": 0.824, "P101": 1, "MV101": 1, "PKT_RATE": 186.8, "N_CONN": 6, "true_cl": 0.824, "zp": 0.398, "zn": 0.452, "fused": 0.452, "pa": 0, "na": 0, "fa": 0}, {"t": 132, "attack": "none", "LIT101": 499.35, "FIT101": 2.412, "AIT201": 0.823, "P101": 1, "MV101": 1, "PKT_RATE": 175.7, "N_CONN": 6, "true_cl": 0.823, "zp": 0.393, "zn": 0.083, "fused": 0.393, "pa": 0, "na": 0, "fa": 0}, {"t": 133, "attack": "none", "LIT101": 499.87, "FIT101": 2.412, "AIT201": 0.828, "P101": 1, "MV101": 1, "PKT_RATE": 178.3, "N_CONN": 6, "true_cl": 0.828, "zp": 0.523, "zn": 0.004, "fused": 0.523, "pa": 0, "na": 0, "fa": 0}, {"t": 134, "attack": "none", "LIT101": 499.28, "FIT101": 2.494, "AIT201": 0.836, "P101": 1, "MV101": 1, "PKT_RATE": 181.6, "N_CONN": 6, "true_cl": 0.836, "zp": 0.504, "zn": 0.049, "fused": 0.504, "pa": 0, "na": 0, "fa": 0}, {"t": 135, "attack": "none", "LIT101": 499.96, "FIT101": 2.499, "AIT201": 0.823, "P101": 1, "MV101": 1, "PKT_RATE": 177.6, "N_CONN": 6, "true_cl": 0.823, "zp": 0.213, "zn": 0.015, "fused": 0.213, "pa": 0, "na": 0, "fa": 0}], "proc_feats": ["LIT101", "FIT101", "AIT201", "P101", "MV101"], "net_feats": ["PKT_RATE", "N_CONN"]};
+const R = DATA.records, PT = DATA.proc_thr, NT = DATA.net_thr;
+const n = R.length;
+const $ = id => document.getElementById(id);
+
+// meter fill helper: ratio ×1.0 = at threshold; scale so ×2.5 fills the bar
+function setMeter(fillEl, valEl, thrEl, ratio, color){
+  const w = Math.min(ratio/2.5, 1)*100;
+  fillEl.style.width = w.toFixed(1)+'%';
+  fillEl.style.background = ratio>=1 ? 'var(--alarm)' : color;
+  valEl.textContent = '×'+ratio.toFixed(1);
+  thrEl.style.left = (1/2.5*100)+'%';
+}
+
+const phaseName = {none:'normal operation', spoof:'⚠ SENSOR SPOOF (T0856)', disruption:'⚠ NETWORK DISRUPTION (T0814)'};
+const bandColor = a => a==='spoof' ? 'rgba(63,178,127,.10)' : a==='disruption' ? 'rgba(74,159,224,.12)' : 'transparent';
+
+// chart
+const cv = $('chart'), cx = cv.getContext('2d');
+function resizeCanvas(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixelRatio; cv.height=r.height*devicePixelRatio; cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+addEventListener('resize',()=>{resizeCanvas();draw();});
+
+let idx=0, play=false, posf=0, last=0, alarms=0;
+const durs=[120,60,30,15], labs=['0.5×','1×','2×','4×']; let si=1;
+
+function draw(){
+  const W=cv.getBoundingClientRect().width, H=150, pad=6;
+  cx.clearRect(0,0,W,H);
+  // attack bands
+  for(let i=0;i<n;i++){
+    const a=R[i].attack; if(a==='none')continue;
+    const x=pad+(i/(n-1))*(W-2*pad), x2=pad+((i+1)/(n-1))*(W-2*pad);
+    cx.fillStyle = a==='spoof' ? 'rgba(63,178,127,.13)':'rgba(74,159,224,.15)';
+    cx.fillRect(x,0,x2-x+1,H);
+  }
+  // threshold line (fused ratio = 1)
+  const yFor = v => H-pad-(Math.min(v,3)/3)*(H-2*pad);
+  cx.strokeStyle='rgba(255,255,255,.35)'; cx.setLineDash([4,4]); cx.lineWidth=1;
+  cx.beginPath(); cx.moveTo(pad,yFor(1)); cx.lineTo(W-pad,yFor(1)); cx.stroke(); cx.setLineDash([]);
+  cx.fillStyle='rgba(255,255,255,.4)'; cx.font='10px monospace'; cx.fillText('threshold',W-64,yFor(1)-4);
+  // fused score line up to idx
+  cx.strokeStyle='#f5c451'; cx.lineWidth=2; cx.beginPath();
+  for(let i=0;i<=idx;i++){
+    const x=pad+(i/(n-1))*(W-2*pad), y=yFor(R[i].fused);
+    i?cx.lineTo(x,y):cx.moveTo(x,y);
+  }
+  cx.stroke();
+  // playhead
+  const px=pad+(idx/(n-1))*(W-2*pad);
+  cx.strokeStyle='rgba(255,255,255,.5)'; cx.lineWidth=1; cx.beginPath(); cx.moveTo(px,0); cx.lineTo(px,H); cx.stroke();
+}
+
+function upd(){
+  const r=R[idx];
+  // plant
+  $('v_lit').textContent=r.LIT101.toFixed(0);
+  const lvlH=Math.max(6,Math.min(146,(r.LIT101-430)/140*146));
+  $('water').setAttribute('y', 208-lvlH); $('water').setAttribute('height', lvlH);
+  $('v_ait').textContent=r.AIT201.toFixed(2);
+  $('v_pump').textContent=r.P101? 'ON':'OFF';
+  $('pump').setAttribute('stroke', r.P101? 'var(--proc)':'var(--alarm)');
+  $('v_net').textContent=r.PKT_RATE.toFixed(0)+' pkt/s · '+r.N_CONN+' conn';
+  $('net_led').setAttribute('fill', r.PKT_RATE>500? '#ef5350':'#4a9fe0');
+  // deception
+  const spoof = r.attack==='spoof';
+  $('decep').className = 'decep'+(spoof?' on':'');
+  $('d_rep').textContent=r.AIT201.toFixed(2);
+  $('d_true').textContent=r.true_cl.toFixed(2);
+  $('v_ait_state').textContent = spoof? 'reported (SPOOFED)':'reported';
+  $('d_msg').textContent = spoof
+    ? 'Analyser tag is spoofed, operator sees safe chlorine while true dosing has collapsed. Process branch still catches it.'
+    : 'No deception, reported value matches reality.';
+  // meters
+  setMeter($('pf'),$('pv'),$('pt'),r.zp,'var(--proc)');
+  setMeter($('nf'),$('nv'),$('nt'),r.zn,'var(--net)');
+  setMeter($('ff'),$('fv'),$('ft'),r.fused,'var(--fused)');
+  // status + phase
+  $('phase').textContent=phaseName[r.attack];
+  const al=r.fa===1;
+  const st=$('status'); st.className='badge '+(al?'alarm':'nominal');
+  st.textContent = al? '● ALARM':'● NOMINAL';
+  // kpis
+  $('k_t').textContent=r.t+'s';
+  $('k_sev').textContent='×'+r.fused.toFixed(1);
+  $('k_src').textContent = al ? (r.pa&&r.na?'both':r.pa?'process':'network') : '-';
+  draw();
+}
+
+function recount(){ alarms=0; for(let i=0;i<=idx;i++) alarms+=R[i].fa; $('k_al').textContent=alarms; }
+
+function tick(ts){
+  if(!play)return;
+  if(!last)last=ts; const dt=(ts-last)/1000; last=ts;
+  posf += dt*(n-1)/durs[si];
+  if(posf>=n-1){ posf=n-1; idx=n-1; play=false; last=0; $('play').textContent='▶ Play'; recount(); upd(); return; }
+  idx=Math.round(posf); recount(); upd(); requestAnimationFrame(tick);
+}
+
+$('play').onclick=()=>{ if(idx>=n-1){idx=0;posf=0;} play=!play; last=0; $('play').textContent=play?'❚❚ Pause':'▶ Play'; if(play)requestAnimationFrame(tick); };
+$('reset').onclick=()=>{ idx=0;posf=0;last=0;play=false;alarms=0;$('k_al').textContent='0';$('play').textContent='▶ Play';upd(); };
+$('speed').onclick=e=>{ si=(si+1)%durs.length; e.target.textContent='Speed: '+labs[si]; };
+
+// ---- timeline scrubbing: click or drag the cursor anywhere on the chart to seek ----
+let scrubbing=false, wasPlaying=false;
+function seekFromEvent(e){
+  const rect=cv.getBoundingClientRect(), pad=6;
+  const clientX=(e.touches&&e.touches[0])?e.touches[0].clientX:e.clientX;
+  let frac=(clientX-rect.left-pad)/(rect.width-2*pad);
+  frac=Math.max(0,Math.min(1,frac));
+  idx=Math.round(frac*(n-1)); posf=idx;
+  recount(); upd();
+}
+cv.style.cursor='ew-resize';
+cv.style.touchAction='none';
+cv.title='Click or drag to scrub the timeline';
+cv.addEventListener('pointerdown',e=>{
+  scrubbing=true; wasPlaying=play; play=false; last=0;
+  $('play').textContent='▶ Play';
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  seekFromEvent(e); e.preventDefault();
+});
+cv.addEventListener('pointermove',e=>{ if(scrubbing){ seekFromEvent(e); e.preventDefault(); } });
+function endScrub(){ scrubbing=false; }
+cv.addEventListener('pointerup',endScrub);
+cv.addEventListener('pointercancel',endScrub);
+cv.addEventListener('pointerleave',()=>{ if(scrubbing) endScrub(); });
+
+resizeCanvas(); upd();
+</script>
+</body>
+</html>
