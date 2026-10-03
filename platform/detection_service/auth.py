@@ -2,8 +2,9 @@
 auth.py - real authentication + role-based access for the ICS Guardian service.
 
 Self-contained and dependency-light: uses only the Python standard library for
-password hashing (PBKDF2-HMAC-SHA256, salted) and JWT (HS256 via hmac), plus
-SQLite for the user store. No plaintext passwords are ever stored.
+password hashing (PBKDF2-HMAC-SHA256, salted) and JWT (HS256 via hmac). Users live in
+SQLite by default or in a shared PostgreSQL database when AUTH_DB_URL is set (see store.py),
+so all replicas see the same accounts. No plaintext passwords are ever stored.
 
 Roles
     admin     - full access: user management, system status, all activity
@@ -29,12 +30,12 @@ import hmac
 import json
 import os
 import re
-import sqlite3
 import time
-from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
+
+import store
 
 # Light e-mail check. We deliberately do NOT use pydantic EmailStr /
 # email-validator here: that library rejects special-use domains such as
@@ -43,7 +44,6 @@ from pydantic import BaseModel, Field, field_validator
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # --------------------------------------------------------------------------- #
-DB_PATH = Path(os.getenv("AUTH_DB", Path(__file__).parent / "data" / "users.db"))
 SECRET = os.getenv("AUTH_SECRET", "dev-only-change-me-in-production").encode()
 TOKEN_TTL = int(os.getenv("AUTH_TOKEN_TTL", "28800"))  # 8 hours
 PBKDF2_ROUNDS = 200_000
@@ -74,29 +74,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ----------------------------- storage ------------------------------------- #
-def _conn() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(DB_PATH)
-    c.row_factory = sqlite3.Row
-    return c
+_conn = store.connect
 
 
 def _init_db() -> None:
-    with _conn() as c:
-        c.execute(
-            """CREATE TABLE IF NOT EXISTS users(
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   email TEXT UNIQUE NOT NULL,
-                   pw_hash TEXT NOT NULL,
-                   salt TEXT NOT NULL,
-                   role TEXT NOT NULL DEFAULT 'operator',
-                   active INTEGER NOT NULL DEFAULT 1,
-                   created_at INTEGER NOT NULL)"""
-        )
-        # migrate older DBs that predate the 'active' column
-        cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
-        if "active" not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+    store.init_schema()
 
 
 # ----------------------------- password hashing ---------------------------- #
@@ -115,12 +97,12 @@ def _make_user(email: str, password: str, role: str) -> None:
         )
 
 
-def _get(email: str) -> sqlite3.Row | None:
+def _get(email: str):
     with _conn() as c:
         return c.execute("SELECT * FROM users WHERE email=?", (email.lower(),)).fetchone()
 
 
-def _verify_pw(row: sqlite3.Row, password: str) -> bool:
+def _verify_pw(row, password: str) -> bool:
     salt = base64.b64decode(row["salt"])
     return hmac.compare_digest(_hash(password, salt), row["pw_hash"])
 

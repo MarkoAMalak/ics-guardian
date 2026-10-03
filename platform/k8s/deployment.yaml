@@ -29,6 +29,14 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      # Spread replicas over nodes so that losing one node does not take the service down.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: ics-detector
       containers:
         - name: detector
           image: ics-detector:1.0.0
@@ -70,6 +78,16 @@ spec:
                   name: ics-detector-auth
                   key: secret
                   optional: true
+            # Optional shared PostgreSQL store, so all replicas see the same users and the
+            # same threshold override. Create with:
+            #   kubectl create secret generic ics-detector-db --from-literal=url=postgresql://USER:PASS@HOST:5432/DB
+            # Without it each pod keeps its own SQLite file (fine for a single replica).
+            - name: AUTH_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ics-detector-db
+                  key: url
+                  optional: true
           volumeMounts:
             # The root filesystem is read-only, so the user store and /tmp need
             # their own writable volumes. Model artefacts are baked into the image.
@@ -79,7 +97,7 @@ spec:
               mountPath: /tmp
       volumes:
         - name: data
-          emptyDir: {}      # per-pod user store; use a shared database for multi-replica logins
+          emptyDir: {}      # SQLite fallback when no shared database (ics-detector-db) is configured
         - name: tmp
           emptyDir: {}
 ---

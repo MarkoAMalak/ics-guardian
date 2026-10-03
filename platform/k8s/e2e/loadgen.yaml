@@ -1,0 +1,23 @@
+# In-cluster load generator for the k8s-e2e CI job: N threads POST /score to the Service for
+# DURATION seconds and report throughput, latency percentiles and errors as one JSON line.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ics-loadgen
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadgen
+          image: ics-detector:e2e
+          command: ["python", "/load/loadgen.py"]
+          env:
+            - {name: TARGET, value: "http://ics-detector/score"}
+            - {name: THREADS, value: "16"}
+            - {name: DURATION, value: "150"}
+          volumeMounts: [{name: load, mountPath: /load}]
+      volumes:
+        - name: load
+          configMap: {name: ics-loadgen}

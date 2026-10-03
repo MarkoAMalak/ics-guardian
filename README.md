@@ -170,10 +170,29 @@ Every push and pull request runs `.github/workflows/devsecops.yml`:
 | 4 | Dependency CVEs | pip-audit `--strict` | any known advisory |
 | 5 | Secrets | gitleaks | any leaked credential |
 | 6 | Image + IaC | Trivy | CRITICAL / HIGH with a fix available |
+| + | Kubernetes E2E | kind (3 nodes) | any failed deployment, cross-replica, autoscaling or failover check |
 
 All six gates pass in GitHub Actions on this repository (see the badge above).
 
-### Changes in this release
+### Changes in release 1.2
+
+- **Shared store across replicas.** Set `AUTH_DB_URL` to a PostgreSQL URL and every replica
+  shares the same users and the same threshold override (`store.py`). Without it the
+  service falls back to a per-pod SQLite file. The override is persisted, can be reverted
+  (`DELETE /admin/settings/threshold`), and replicas pick it up within `SETTINGS_TTL` seconds.
+- **Drift monitor.** `drift.py` runs a block CUSUM on the alarm rate against its calibrated
+  target and exposes it at `GET /drift` and as Prometheus gauges (`ics_drift_cusum`,
+  `ics_drift_suspected`, `ics_recent_alarm_rate`). Its limit is set per plant from
+  calibration data (at most one false signal a week on SWaT's calibration block).
+- **Faster batch scoring.** `/score/batch` now scores the whole batch in one vectorised pass
+  (about 8x the throughput of the old per-reading loop), with one PyTorch thread per worker.
+- **Kubernetes end-to-end test in CI.** A 3-node kind cluster runs the real manifests with a
+  shared PostgreSQL store; the job checks cross-replica logins and threshold overrides,
+  pod hardening, autoscaling under in-cluster load, failover when a pod is killed, and a
+  clean Helm install.
+- **Unit tests run against both SQLite and PostgreSQL.**
+
+### Changes in release 1.1
 
 - Upgraded `torch` 2.3.1 → 2.14.1 and `python-multipart` 0.0.9 → 0.0.32. The old pins
   had 37 published advisories, so `pip-audit --strict` would have failed the build.
@@ -202,14 +221,11 @@ All six gates pass in GitHub Actions on this repository (see the badge above).
   evaluated offline on the SWaT A6 campaign.
 - Models are plant-specific: SWaT has 45 channels and WADI 50. A new site needs clean
   data and retraining.
-- The user store is SQLite, local to each pod. With several replicas, use a shared
-  identity store.
-- An administrator's runtime threshold override applies to one replica and is not
-  persisted. The threshold in the model artefact is the authoritative value.
-- The 1 % false-alarm rate was measured on the normal data used to set τ, so it is an
-  in-sample estimate.
-- Results are from a single training seed. The platform has not been connected to a
-  live plant.
+- Fusion results come from one short campaign; SWaT A6 network data is needed to repeat
+  them over several seeds.
+- The drift monitor flags a rise in the alarm rate; a sustained attack raises it too, so a
+  drift signal calls for human review, not automatic recalibration.
+- The platform has not been connected to a live plant.
 
 ---
 

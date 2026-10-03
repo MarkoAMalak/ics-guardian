@@ -8,3 +8,5 @@ joblib==1.6.0
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.14.1
 python-multipart==0.0.32
+# PostgreSQL driver for the optional shared user/settings store (AUTH_DB_URL)
+psycopg[binary]==3.3.6

@@ -48,3 +48,6 @@ artifacts:
 # Name of a Secret holding the JWT signing key under the key "secret".
 auth:
   secretName: ics-detector-auth
+  # Name of a Secret holding a PostgreSQL URL under the key "url". When it exists, every
+  # replica shares users and the threshold override; otherwise each pod uses its own SQLite.
+  dbUrlSecretName: ics-detector-db

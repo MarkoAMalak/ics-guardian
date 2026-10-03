@@ -24,6 +24,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+# One intra-op thread per worker process: the model is tiny, and several threads per request
+# only contend with FastAPI's thread pool. Scale out with more workers or replicas instead.
+torch.set_num_threads(int(os.getenv("TORCH_THREADS", "1")))
+
 ARTIFACT_DIR = Path(os.getenv("ARTIFACT_DIR", Path(__file__).parent / "artifacts"))
 
 
@@ -96,14 +100,13 @@ class Detector:
             raise KeyError(f"missing features: {missing[:8]}{'...' if len(missing) > 8 else ''}")
         return np.array([[float(sample[f]) for f in self.features]], dtype=np.float32)
 
-    def score_one(self, sample: dict[str, float]) -> dict:
-        if not self.ready:
-            raise RuntimeError("model artifacts not loaded")
-        x = self._vectorize(sample)
+    def _errors(self, x: np.ndarray) -> np.ndarray:
         xs = self._scaler.transform(x)
         with torch.no_grad():
             recon = self._model(torch.from_numpy(xs.astype(np.float32))).numpy()
-        err = float(np.mean((xs - recon) ** 2))
+        return np.mean((xs - recon) ** 2, axis=1)
+
+    def _result(self, err: float) -> dict:
         z = err / self.threshold if self.threshold > 0 else 0.0
         return {
             "recon_error": round(err, 6),
@@ -112,5 +115,16 @@ class Detector:
             "anomaly": bool(err >= self.threshold),
         }
 
+    def score_one(self, sample: dict[str, float]) -> dict:
+        if not self.ready:
+            raise RuntimeError("model artifacts not loaded")
+        return self._result(float(self._errors(self._vectorize(sample))[0]))
+
     def score_batch(self, samples: list[dict[str, float]]) -> list[dict]:
-        return [self.score_one(s) for s in samples]
+        """Score many readings in one vectorised pass (same decisions as one by one, errors equal to float32 precision)."""
+        if not self.ready:
+            raise RuntimeError("model artifacts not loaded")
+        if not samples:
+            return []
+        x = np.vstack([self._vectorize(s) for s in samples])
+        return [self._result(float(e)) for e in self._errors(x)]

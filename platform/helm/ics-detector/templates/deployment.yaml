@@ -28,6 +28,13 @@ spec:
         fsGroup: {{ .Values.securityContext.runAsUser }}
         seccompProfile:
           type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "ics-detector.selectorLabels" . | nindent 14 }}
       containers:
         - name: detector
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -62,6 +69,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.auth.secretName }}
                   key: secret
+                  optional: true
+            - name: AUTH_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.dbUrlSecretName }}
+                  key: url
                   optional: true
           volumeMounts:
             - name: data

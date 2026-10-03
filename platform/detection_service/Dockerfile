@@ -27,7 +27,7 @@ RUN apt-get update \
     && python -m pip uninstall -y pip
 
 # App code
-COPY model.py app.py auth.py ./
+COPY model.py app.py auth.py store.py drift.py ./
 COPY web/ ./web/
 # Artifacts are mounted at runtime (-v ./artifacts:/app/artifacts) or COPY'd in a
 # release image. The service starts even if they are absent (health stays green).

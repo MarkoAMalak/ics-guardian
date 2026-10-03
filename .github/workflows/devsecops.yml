@@ -24,6 +24,16 @@ jobs:
   lint-and-test:
     name: Lint & Unit Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ics
+          POSTGRES_PASSWORD: ics-ci-only   # throwaway CI database, not a secret
+          POSTGRES_DB: ics
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ics" --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: platform/detection_service
@@ -43,7 +53,12 @@ jobs:
       - name: Lint (ruff, whole platform)
         run: ruff check ..
 
-      - name: Unit tests (pytest)
+      - name: Unit tests (pytest, SQLite store)
+        run: pytest -q
+
+      - name: Unit tests (pytest, shared PostgreSQL store)
+        env:
+          AUTH_DB_URL: postgresql://ics:ics-ci-only@localhost:5432/ics
         run: pytest -q
 
   # ----------------------------------------------------------------- #
@@ -123,3 +138,96 @@ jobs:
           scan-ref: platform/detection_service
           exit-code: "1"
           severity: CRITICAL,HIGH
+
+  # ----------------------------------------------------------------- #
+  k8s-e2e:
+    name: Kubernetes E2E (3-node kind cluster)
+    runs-on: ubuntu-latest
+    needs: [lint-and-test]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kind
+        run: |
+          curl -sSLo kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+          kind version && kubectl version --client && helm version
+
+      - name: Create a 3-node cluster
+        run: kind create cluster --name ics --config platform/k8s/e2e/kind-config.yaml --wait 180s
+
+      - name: Build the service image and load it into the cluster
+        run: |
+          docker build -t ics-detector:e2e platform/detection_service
+          kind load docker-image ics-detector:e2e --name ics
+
+      - name: Secrets and shared PostgreSQL store
+        run: |
+          PW=$(openssl rand -hex 16)
+          kubectl create secret generic ics-postgres-pw --from-literal=password=$PW
+          kubectl create secret generic ics-detector-db --from-literal=url=postgresql://ics:$PW@ics-postgres:5432/ics
+          kubectl create secret generic ics-detector-auth --from-literal=secret=$(openssl rand -hex 32)
+          kubectl apply -f platform/k8s/e2e/postgres.yaml
+          kubectl rollout status deployment/ics-postgres --timeout=180s
+
+      - name: Deploy the detector (plain manifests, 3 replicas)
+        run: |
+          sed -e 's#image: ics-detector:1.0.0#image: ics-detector:e2e#' -e 's#replicas: 2#replicas: 3#' \
+            platform/k8s/deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/ics-detector --timeout=300s
+          kubectl get pods -o wide
+
+      - name: End-to-end checks (shared store, cross-replica threshold, hardening)
+        run: python3 platform/k8s/e2e/e2e_check.py | tee e2e.json
+
+      - name: Autoscaling and pod-failure test under load
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s
+          kubectl apply -f platform/k8s/hpa.yaml
+          kubectl create configmap ics-loadgen --from-file=platform/k8s/e2e/loadgen.py
+          sleep 30
+          kubectl apply -f platform/k8s/e2e/loadgen.yaml
+          for i in $(seq 1 24); do
+            echo "t=$((i*10))s $(kubectl get hpa ics-detector --no-headers | awk '{print "targets="$3" replicas="$6}')" | tee -a hpa.log
+            if [ $i -eq 8 ]; then
+              VICTIM=$(kubectl get pods -l app=ics-detector -o name | head -1)
+              echo "deleting $VICTIM to test failover" | tee -a hpa.log
+              kubectl delete $VICTIM --wait=false
+            fi
+            sleep 10
+          done
+          kubectl wait --for=condition=complete job/ics-loadgen --timeout=120s
+          kubectl logs job/ics-loadgen | tail -1 | tee load.json
+          kubectl get hpa ics-detector
+
+      - name: Helm chart installs cleanly
+        run: |
+          helm lint platform/helm/ics-detector
+          kubectl create namespace helm-test
+          kubectl -n helm-test create secret generic ics-detector-auth --from-literal=secret=$(openssl rand -hex 32)
+          helm install ics platform/helm/ics-detector -n helm-test \
+            --set image.tag=e2e --set autoscaling.enabled=false --wait --timeout 5m
+          kubectl -n helm-test get pods
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Kubernetes E2E"
+            echo '```'; cat e2e.json 2>/dev/null; echo '```'
+            echo "### Load (in-cluster, 16 threads, 150 s, one pod deleted at t=80 s)"
+            echo '```'; cat load.json 2>/dev/null; cat hpa.log 2>/dev/null; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k8s-e2e-results
+          path: |
+            e2e.json
+            load.json
+            hpa.log

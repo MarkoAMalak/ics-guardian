@@ -21,3 +21,6 @@ Thumbs.db
 *.zip
 detection_service/artifacts/*.npy
 detection_service/artifacts/*.pkl
+
+# Local user store created when the service or tests run
+platform/detection_service/data/
