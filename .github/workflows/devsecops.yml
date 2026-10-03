@@ -222,6 +222,10 @@ jobs:
             echo "### Load (in-cluster, 16 threads, 150 s, one pod deleted at t=80 s)"
             echo '```'; cat load.json 2>/dev/null; cat hpa.log 2>/dev/null; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # also publish the results as check annotations (readable through the Checks API)
+          [ -f e2e.json ] && echo "::notice title=k8s-e2e checks::$(tr -d '\n ' < e2e.json)"
+          [ -f load.json ] && echo "::notice title=k8s-e2e load::$(tr -d '\n' < load.json)"
+          [ -f hpa.log ] && echo "::notice title=k8s-e2e autoscaling::$(tr '\n' ';' < hpa.log)"
 
       - uses: actions/upload-artifact@v4
         if: always()
