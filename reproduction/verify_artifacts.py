@@ -39,7 +39,7 @@ import sys
 import numpy as np
 
 HERE = pathlib.Path(__file__).resolve().parent
-ART = HERE.parent / "03_model_artifacts"
+ART = HERE.parent / "model_artifacts"
 
 MODELS = {
     "swat": ("model_web.json", 45, 0.063966),

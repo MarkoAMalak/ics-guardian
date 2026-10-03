@@ -32,7 +32,7 @@ import time
 import numpy as np
 
 HERE = pathlib.Path(__file__).resolve().parent
-ART = HERE.parent / "03_model_artifacts"
+ART = HERE.parent / "model_artifacts"
 MODELS = {"swat": "model_web.json", "wadi": "model_web_wadi.json"}
 
 

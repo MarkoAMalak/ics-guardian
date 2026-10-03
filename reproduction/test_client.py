@@ -5,8 +5,8 @@ Usage:
     python test_client.py                      # tests http://localhost:8000
     python test_client.py http://YOUR_URL      # tests a deployed URL
 
-It calls /health, then POSTs the NORMAL and ATTACK samples from
-sample_payloads.json to /score and prints the verdicts.
+It calls /health, then POSTs the curated normal reading and the real SWaT attack
+rows from sample_payloads_real.json to /score and prints the verdicts.
 Only needs the `requests` library:  pip install requests
 """
 import sys, json, os
@@ -18,7 +18,7 @@ except ImportError:
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:8000"
 HERE = os.path.dirname(os.path.abspath(__file__))
-samples = json.load(open(os.path.join(HERE, "sample_payloads.json"), encoding="utf-8"))
+samples = json.load(open(os.path.join(HERE, "sample_payloads_real.json"), encoding="utf-8"))
 
 print(f"Target: {BASE}\n")
 
@@ -33,8 +33,8 @@ if not h.get("model_loaded"):
 info = requests.get(f"{BASE}/info", timeout=10).json()
 print(f"GET /info   -> {info['n_features']} features, threshold={info['threshold']:.5f}\n")
 
-# 3) score the two samples
-for name in ["normal_sample", "attack_sample"]:
+# 3) score the curated samples
+for name in [k for k in samples if isinstance(samples[k], dict) and "features" in samples[k]]:
     feats = samples[name]["features"]
     exp = samples[name]["expected"]
     r = requests.post(f"{BASE}/score", json={"features": feats}, timeout=10).json()
