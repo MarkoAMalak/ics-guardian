@@ -171,7 +171,7 @@ Every push and pull request runs `.github/workflows/devsecops.yml`:
 | 5 | Secrets | gitleaks | any leaked credential |
 | 6 | Image + IaC | Trivy | CRITICAL / HIGH with a fix available |
 
-Gates 1–4 were run locally on this exact tree and pass. Gates 5–6 run in GitHub Actions.
+All six gates pass in GitHub Actions on this repository (see the badge above).
 
 ### Changes in this release
 
@@ -186,6 +186,13 @@ Gates 1–4 were run locally on this exact tree and pass. Gates 5–6 run in Git
   artefacts. Pods now get writable `/app/data` and `/tmp` volumes and read the JWT key
   from a Secret, and the artefacts come from the image (or from an optional PVC in Helm).
 - The CI workflow moved to the repository root so GitHub Actions picks it up.
+- **CI fixes found on the first real run:** pytest now finds the service module
+  (`pythonpath` in `pyproject.toml`); `pip-audit` audits the CPU-only PyTorch build
+  separately, since it is not on PyPI; the Trivy action is pinned to a commit SHA.
+- **Image hardening (Trivy):** the image patches Debian packages and removes the
+  build-time tools (`pip`, `setuptools`, `wheel`, the `ensurepip` wheels) after
+  installing dependencies. This clears five HIGH findings: `libpcre2`, plus
+  `urllib3`, `msgpack` and `setuptools` vendored inside pip.
 
 ---
 
