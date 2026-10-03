@@ -192,7 +192,10 @@ jobs:
           sleep 30
           kubectl apply -f platform/k8s/e2e/loadgen.yaml
           for i in $(seq 1 24); do
-            echo "t=$((i*10))s $(kubectl get hpa ics-detector --no-headers | awk '{print "targets="$3" replicas="$6}')" | tee -a hpa.log
+            CPU=$(kubectl get hpa ics-detector -o jsonpath='{.status.currentMetrics[0].resource.current.averageUtilization}')
+            REP=$(kubectl get hpa ics-detector -o jsonpath='{.status.currentReplicas}')
+            READY=$(kubectl get deploy ics-detector -o jsonpath='{.status.readyReplicas}')
+            echo "t=$((i*10))s cpu=${CPU:-na}% replicas=${REP:-na} ready=${READY:-na}" | tee -a hpa.log
             if [ $i -eq 8 ]; then
               VICTIM=$(kubectl get pods -l app=ics-detector -o name | head -1)
               echo "deleting $VICTIM to test failover" | tee -a hpa.log
