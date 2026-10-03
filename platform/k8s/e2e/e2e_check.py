@@ -36,9 +36,11 @@ out = {"replicas_running": len(ready), "nodes_used": nodes,
 assert len(ready) >= 2, out
 
 a, b = ready[0]["metadata"]["name"], ready[1]["metadata"]["name"]
-pf = [subprocess.Popen(f"kubectl port-forward pod/{a} 18001:8000", shell=True),
-      subprocess.Popen(f"kubectl port-forward pod/{b} 18002:8000", shell=True),
-      subprocess.Popen("kubectl port-forward svc/ics-detector 18000:80", shell=True)]
+# port-forwards must not inherit stdout, or a "| tee" in CI would wait for them forever
+quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+pf = [subprocess.Popen(["kubectl", "port-forward", f"pod/{a}", "18001:8000"], **quiet),
+      subprocess.Popen(["kubectl", "port-forward", f"pod/{b}", "18002:8000"], **quiet),
+      subprocess.Popen(["kubectl", "port-forward", "svc/ics-detector", "18000:80"], **quiet)]
 time.sleep(6)
 try:
     email = f"e2e.{int(time.time())}@plant.example"
@@ -61,6 +63,7 @@ try:
 finally:
     for p in pf:
         p.terminate()
+        p.wait(timeout=10)
 
 print(json.dumps(out, indent=1))
 ok = all(v for k, v in out.items() if isinstance(v, bool))
