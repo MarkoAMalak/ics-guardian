@@ -24,10 +24,13 @@ Author: **Marko A. Malak** · School of Computing, Queen's University
 All detectors are trained on normal operation only. ROC-AUC and PR-AUC are
 threshold-free and are the headline metrics.
 
-| Dataset | Deployed model (Dense AE) | Best model in benchmark |
-|---|---|---|
-| SWaT  | ROC-AUC **0.942** · PR-AUC **0.802** | TranAD 0.976 / 0.822 |
-| WADI  | ROC-AUC **0.770** · PR-AUC **0.317** | LSTM-AE 0.850 / 0.467 |
+| Dataset | Deployed model (Dense AE) | Dense AE, 5 seeds | Best model, 5 seeds |
+|---|---|---|---|
+| SWaT  | ROC-AUC **0.942** · PR-AUC **0.802** | 0.942 ± 0.004 / 0.799 ± 0.006 | TranAD 0.973 ± 0.006 / 0.840 ± 0.003 |
+| WADI  | ROC-AUC **0.770** · PR-AUC **0.317** | 0.788 ± 0.015 / 0.312 ± 0.012 | LSTM-AE 0.850 ± 0.002 / 0.484 ± 0.006 |
+
+The five-seed benchmark covers all six detectors and the ensemble, with F1 both with and
+without point adjustment: [`reproduction/multiseed_benchmark/`](reproduction/multiseed_benchmark/).
 
 **Process–network fusion** (SWaT A6 campaign, per window, no point adjustment):
 
@@ -44,10 +47,11 @@ the highest recall on both.
 about 1 % false alarms on normal data.
 **Cost.** About 0.05 ms per reading for the model forward pass on a commodity CPU.
 
-> **A note on F1.** The SWaT benchmark also reports point-adjusted F1, the convention
-> in much of the literature. Under that protocol even USAD reaches F1 1.000 while its
-> ROC-AUC is 0.540, close to random. Point-adjusted F1 is optimistic, so models here
-> are ranked by PR-AUC.
+> **A note on F1.** The benchmark also reports point-adjusted (PA) F1, the convention
+> in much of the literature. Under PA, USAD reaches F1 0.981 ± 0.043 on SWaT while its
+> ROC-AUC across five seeds is 0.452 ± 0.345 (0.12 to 0.88); without PA its F1 falls to
+> 0.349 ± 0.372. PA-F1 is optimistic, so models here are ranked by PR-AUC and by F1
+> without point adjustment.
 
 ---
 
@@ -69,8 +73,9 @@ ics-guardian/
 │   └── docker-compose.yml        detector + Prometheus in one command
 ├── model_artifacts/              portable JSON models (SWaT 45 features, WADI 50)
 ├── reproduction/                 verify the shipped models without the datasets
+│   └── multiseed_benchmark/       all detectors x 5 seeds on SWaT and WADI
 ├── figure_scripts/               scripts for the project figures
-└── .github/workflows/            DevSecOps pipeline (6 gates)
+└── .github/workflows/            DevSecOps pipeline (7 gates)
 ```
 
 ---
@@ -176,6 +181,9 @@ All six gates pass in GitHub Actions on this repository (see the badge above).
 
 ### Changes in release 1.2
 
+- **Five-seed benchmark.** Every detector (Isolation Forest, dense AE, LSTM-AE, USAD,
+  TranAD, GDN, ensemble) retrained with five seeds on SWaT and WADI, with F1 reported with
+  and without point adjustment (`reproduction/multiseed_benchmark/`).
 - **Shared store across replicas.** Set `AUTH_DB_URL` to a PostgreSQL URL and every replica
   shares the same users and the same threshold override (`store.py`). Without it the
   service falls back to a per-pod SQLite file. The override is persisted, can be reverted
